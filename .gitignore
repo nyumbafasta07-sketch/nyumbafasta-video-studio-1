@@ -1,0 +1,27 @@
+# deps / build
+node_modules/
+.next/
+out/
+dist/
+*.tsbuildinfo
+next-env.d.ts
+
+# env / secrets
+.env
+.env.local
+.env.*.local
+
+# runtime data — never commit generated or uploaded assets
+storage/
+*.sqlite
+*.sqlite-journal
+*.db
+
+# python worker
+worker/__pycache__/
+worker/.venv/
+*.pyc
+
+# os / editor
+.DS_Store
+*.log
