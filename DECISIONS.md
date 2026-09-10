@@ -99,6 +99,27 @@ Reason:   §8 says the Training Studio starts once the Phase 2 mock pipeline
 
 ---
 
+Decision: Provider selection (GPU + training) is runtime-editable from
+          Settings → Compute, backed by the `settings` table, with env vars as
+          the defaults. The GPU worker URL + bearer token can be set there too.
+Reason:   Founder must not depend on one GPU host (Colab). Editing `.env` +
+          restarting for every switch between a Colab tunnel, Kaggle, and a
+          local NVIDIA box is friction for a non-developer. `getRuntimeConfig()`
+          merges env defaults with DB overrides; `getGpu()` / `getTrainingProvider()`
+          read it and a settings change clears the memoised instances
+          (`onProviderConfigChange`), so a switch takes effect on the next job
+          with no restart. The worker token, when entered in the UI, is stored
+          in the local git-ignored SQLite file — not source, not committed, not
+          logged, returned by the API only as a boolean. This is a softening of
+          §10 "env vars only" that stays true to its intent (no secrets in
+          source / VCS); the alternative (token strictly env-only) would force a
+          restart per host switch, which defeats the feature. `.env` remains
+          the fallback. `worker/worker.py` gained mock `ingest` / `build_dataset`
+          / `train` / `evaluate` task types so the `worker` TrainingProvider has
+          a runnable reference; `worker/contract.md` documents them.
+
+---
+
 Decision: Mock MP4 render uses the `ffmpeg-static` npm binary (no system ffmpeg).
 Reason:   The dev box has no system ffmpeg. `ffmpeg-static` ships a pinned
           binary via npm, keeping "npm install && npm run dev" self-contained.

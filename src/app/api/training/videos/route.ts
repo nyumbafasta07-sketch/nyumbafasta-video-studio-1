@@ -37,6 +37,7 @@ export async function POST(req: NextRequest) {
     filename: file.name,
     bytes: buf.byteLength,
     mime: file.type || "video/mp4",
+    localPath: rel,
   });
 
   const video = addVideo({

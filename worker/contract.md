@@ -41,17 +41,53 @@ Response: `202 {"jobId": "<worker-side id>"}`
 ```json
 {
   "status": "queued" | "running" | "done" | "error",
-  "error": "..."            // when status=error
-  "artifactUrl": "/artifacts/<id>",  // when status=done
+  "stage": "training",       // while running, for long tasks (train)
+  "error": "...",            // when status=error
+  "artifactUrl": "/artifacts/<id>",  // when done AND a binary artifact exists
   "mime": "audio/wav" | "image/png" | "video/mp4",
   "kind": "MOCK" | "EXPERIMENTAL" | "PRODUCTION",
   "model": "mock-tone-v1",
-  "meta": { ... }
+  "meta": { ... },
+  "result": { ... }          // when done, for tasks that return JSON not bytes
 }
 ```
 
 ### `GET /artifacts/{id}`
 Raw bytes of the produced file, `Content-Type` = the `mime` above.
+
+---
+
+## Training tasks (Training Studio, brief §8)
+
+`WorkerTrainingProvider` (`src/lib/training/worker-provider.ts`) uses the same
+`/run` → `/jobs/{id}` → `/artifacts/{id}` flow. `type` is one of:
+
+### `ingest`
+`payload` = `{ "filename": str, "mime": str, "fileB64": str }` (the app sends the
+uploaded recording base64-encoded).
+`result` = `{ "qualityScore": 1..10, "qualityStatus": str, "meta": {...} }`
+
+### `build_dataset`
+`payload` = `{ "videos": [{ "id", "meta", "quality_status" }, ...] }`
+`result` = `{ "clipCount", "speechSeconds", "frameCount", "faceOkRatio" }`
+
+### `train`  (long — the app polls for up to ~1h)
+`payload` = `{ "profile", "level", "datasetId", "datasetStats": {...}, "baseModel" }`
+Reports progress via `stage` on `/jobs/{id}` (`preprocessing` → `transcribing` →
+`building_dataset` → `training` → `evaluating`).
+`result` = `{ "baseModel", "evalScore", "evalBreakdown": {metric: score},
+             "gpuUsed", "license", "kind" }`
+
+### `evaluate`
+`payload` = `{ "profile", "versionId", "testKey", "scriptText" }`
+Returns BOTH a `result` (`{ "scores": {metric: score}, "kind" }`) and a binary
+`artifactUrl` (the preview wav/png the app stores under `training/evals/`).
+
+Phase 3+ (see MODEL_DEPLOYMENT.md):
+- Python version, CUDA version, minimum VRAM per task type
+- exact model weights + license, cold-start + warm inference time
+- how the worker is exposed (cloudflared / ngrok / LAN) and pointed at from
+  Settings → Compute
 
 ## Migration notes (fill in during Phase 3, see MODEL_DEPLOYMENT.md)
 

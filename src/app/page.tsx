@@ -3,6 +3,7 @@ import { Shell } from "@/components/Shell";
 import { bootstrap } from "@/lib/bootstrap";
 import { config } from "@/lib/config";
 import { getProject, listProjects, listJobsByStates, listRecentJobs } from "@/lib/repo";
+import { getRuntimeConfig } from "@/lib/runtime-config";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -19,6 +20,7 @@ export default function Dashboard() {
     "RENDERING",
   ]);
   const recentJobs = listRecentJobs(8);
+  const rc = getRuntimeConfig();
 
   return (
     <Shell active="/" title="Dashboard" subtitle="Phase 2 — mock pipeline. Every output is fake by design.">
@@ -39,16 +41,19 @@ export default function Dashboard() {
           <Link href="/create">Create a video</Link>
         </div>
         <div className="card">
-          <div className="muted">Providers</div>
+          <div className="muted">Compute</div>
           <div className="row" style={{ marginTop: 8 }}>
-            <span className="badge mock">voice: {config.providers.voice}</span>
-            <span className="badge mock">face: {config.providers.face}</span>
-            <span className="badge mock">lipsync: {config.providers.lipsync}</span>
+            <span className={`badge ${rc.gpuProvider === "http" ? "state" : "mock"}`}>
+              gpu: {rc.gpuProvider}
+            </span>
+            <span className={`badge ${rc.trainingProvider === "worker" ? "state" : "mock"}`}>
+              training: {rc.trainingProvider}
+            </span>
           </div>
           <div className="row" style={{ marginTop: 6 }}>
-            <span className="badge">gpu: {config.providers.gpu}</span>
             <span className="badge">renderer: {config.providers.renderer}</span>
           </div>
+          <Link href="/settings">Change in Settings</Link>
         </div>
       </div>
 

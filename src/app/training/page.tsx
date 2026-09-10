@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { Shell } from "@/components/Shell";
 import { bootstrap } from "@/lib/bootstrap";
-import { config } from "@/lib/config";
+import { getRuntimeConfig } from "@/lib/runtime-config";
 import {
   listDatasets,
   listTrainingJobs,
@@ -16,6 +16,7 @@ export const dynamic = "force-dynamic";
 
 export default function TrainingHub() {
   bootstrap();
+  const rc = getRuntimeConfig();
   const videos = listVideos();
   const marked = videos.filter((v) => v.in_dataset).length;
   const datasets = listDatasets();
@@ -57,9 +58,12 @@ export default function TrainingHub() {
         <div className="card">
           <div className="muted">Training provider</div>
           <div className="row" style={{ marginTop: 8 }}>
-            <span className="badge mock">{config.providers.training}</span>
+            <span className={`badge ${rc.trainingProvider === "worker" ? "state" : "mock"}`}>
+              {rc.trainingProvider}
+            </span>
           </div>
-          <Link href="/training/models">All model versions</Link>
+          <Link href="/settings">Change in Settings</Link> ·{" "}
+          <Link href="/training/models">Model versions</Link>
         </div>
       </div>
 

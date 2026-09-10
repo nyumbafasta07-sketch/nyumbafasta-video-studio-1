@@ -4,9 +4,10 @@
  * no GPU. A `worker` impl (routes to the Python GPU worker) replaces it later;
  * nothing in the orchestrator or UI changes.
  */
-import { config } from "../config";
 import { getStorage } from "../storage";
 import { makeMockWav, makeMockFacePng } from "../providers/media";
+import { getRuntimeConfig, onProviderConfigChange } from "../runtime-config";
+import { WorkerTrainingProvider } from "./worker-provider";
 import type { Dataset, Profile, TrainingVideo } from "./types";
 
 /* ---- interface ---- */
@@ -41,7 +42,13 @@ export interface EvalResult {
 
 export interface TrainingProvider {
   readonly name: string;
-  ingestVideo(input: { filename: string; bytes: number; mime: string }): Promise<IngestResult>;
+  ingestVideo(input: {
+    filename: string;
+    bytes: number;
+    mime: string;
+    /** storage-relative path of the uploaded file; a real worker needs the bytes */
+    localPath?: string;
+  }): Promise<IngestResult>;
   buildDataset(videos: TrainingVideo[]): Promise<DatasetStats>;
   train(input: {
     profile: Profile;
@@ -212,15 +219,23 @@ let instance: TrainingProvider | null = null;
 
 export function getTrainingProvider(): TrainingProvider {
   if (instance) return instance;
-  switch (config.providers.training ?? "mock") {
+  const name = getRuntimeConfig().trainingProvider;
+  switch (name) {
     case "mock":
       instance = new MockTrainingProvider();
       break;
+    case "worker":
+      instance = new WorkerTrainingProvider();
+      break;
     default:
-      throw new Error(`Unknown TRAINING_PROVIDER: ${config.providers.training}`);
+      throw new Error(`Unknown training provider: ${name}`);
   }
   return instance;
 }
+
+onProviderConfigChange(() => {
+  instance = null;
+});
 
 export function _setTrainingProviderForTests(p: TrainingProvider | null) {
   instance = p;
