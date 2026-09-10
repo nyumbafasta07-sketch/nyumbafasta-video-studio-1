@@ -10,9 +10,16 @@ models are sensitive personal assets. The rules below are non-negotiable.
 - `.env.example` is committed; `.env` and `.env.local` are git-ignored and never
   committed.
 - Secrets in use: `SESSION_SECRET` (cookie HMAC), `APP_PASSWORD_HASH` (scrypt
-  hash of the app password), later `GPU_WORKER_URL` / `GPU_WORKER_TOKEN`.
+  hash of the app password), `GPU_WORKER_URL` / `GPU_WORKER_TOKEN`.
 - Logs never contain the password, its hash, the session secret, cookie values,
   or provider tokens (`src/lib/logger.ts` redacts).
+- The GPU **worker token** can also be set at runtime from Settings → Compute so
+  the founder can switch workers (Colab / Kaggle / local box) without editing
+  `.env`. When set that way it lives in the local, git-ignored SQLite file
+  (`*.sqlite` in `.gitignore`) — still never in source, never committed. The API
+  returns it only as a boolean (`gpuWorkerTokenSet`), never the value, and it is
+  never logged. Env `GPU_WORKER_TOKEN` remains the default when nothing is set
+  in the UI. (`DECISIONS.md`)
 
 ## Auth / access
 

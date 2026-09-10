@@ -1,27 +1,32 @@
 /**
- * HTTP GPUProvider — talks to the Python worker (worker/). EXPERIMENTAL: the
+ * HTTP GPUProvider — talks to a Python worker (worker/). EXPERIMENTAL: the
  * contract is defined and the worker has a mock implementation, but this path is
- * not exercised by Phase 2 and is not covered by the default test run. Becomes
- * the real cloud/local GPU boundary in Phase 3 (brief §9).
+ * not covered by the default test run. Worker URL + token come from the runtime
+ * config (Settings UI), so it can point at Colab / Kaggle / a local NVIDIA box.
  */
-import { config } from "../../config";
+import { getRuntimeConfig } from "../../runtime-config";
 import type { GpuArtifact, GpuProvider, GpuTask } from "./types";
 
 export class HttpGpu implements GpuProvider {
   readonly name = "http";
-  private base = config.gpuWorker.url.replace(/\/$/, "");
-  private token = config.gpuWorker.token;
+
+  private cfg() {
+    const rc = getRuntimeConfig();
+    return { base: rc.gpuWorkerUrl.replace(/\/$/, ""), token: rc.gpuWorkerToken };
+  }
 
   private headers(): Record<string, string> {
     const h: Record<string, string> = { "content-type": "application/json" };
-    if (this.token) h.authorization = `Bearer ${this.token}`;
+    const { token } = this.cfg();
+    if (token) h.authorization = `Bearer ${token}`;
     return h;
   }
 
   async available(): Promise<boolean> {
-    if (!this.base) return false;
+    const { base } = this.cfg();
+    if (!base) return false;
     try {
-      const r = await fetch(`${this.base}/health`, { headers: this.headers() });
+      const r = await fetch(`${base}/health`, { headers: this.headers() });
       return r.ok;
     } catch {
       return false;
@@ -29,8 +34,9 @@ export class HttpGpu implements GpuProvider {
   }
 
   async execute(task: GpuTask): Promise<GpuArtifact> {
-    if (!this.base) throw new Error("GPU_WORKER_URL not set");
-    const submit = await fetch(`${this.base}/run`, {
+    const { base } = this.cfg();
+    if (!base) throw new Error("GPU worker URL not set (Settings → GPU)");
+    const submit = await fetch(`${base}/run`, {
       method: "POST",
       headers: this.headers(),
       body: JSON.stringify(task),
@@ -38,10 +44,9 @@ export class HttpGpu implements GpuProvider {
     if (!submit.ok) throw new Error(`worker /run ${submit.status}`);
     const { jobId } = (await submit.json()) as { jobId: string };
 
-    // poll
     for (let i = 0; i < 600; i++) {
       await new Promise((r) => setTimeout(r, 1000));
-      const s = await fetch(`${this.base}/jobs/${jobId}`, { headers: this.headers() });
+      const s = await fetch(`${base}/jobs/${jobId}`, { headers: this.headers() });
       if (!s.ok) throw new Error(`worker /jobs ${s.status}`);
       const body = (await s.json()) as {
         status: string;
@@ -54,9 +59,7 @@ export class HttpGpu implements GpuProvider {
       };
       if (body.status === "error") throw new Error(body.error ?? "worker error");
       if (body.status === "done") {
-        const a = await fetch(`${this.base}${body.artifactUrl}`, {
-          headers: this.headers(),
-        });
+        const a = await fetch(`${base}${body.artifactUrl}`, { headers: this.headers() });
         if (!a.ok) throw new Error(`worker artifact ${a.status}`);
         return {
           data: Buffer.from(await a.arrayBuffer()),

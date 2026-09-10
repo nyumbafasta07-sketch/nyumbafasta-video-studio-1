@@ -26,16 +26,22 @@ export class MockLipSyncProvider implements LipSyncProvider {
     const clipH = Math.round(input.height * 0.55);
 
     const gpu = getGpu();
+    const payload: Record<string, unknown> = {
+      facePath: faceLocal, // used by local-mock (in-process)
+      audioPath: audioLocal,
+      width: clipW,
+      height: clipH,
+    };
+    if (gpu.name !== "local-mock") {
+      // a remote worker can't read our files — send the bytes
+      payload.faceB64 = (await storage.get(input.facePath)).toString("base64");
+      payload.audioB64 = (await storage.get(input.audioPath)).toString("base64");
+    }
     const artifact = await gpu.execute({
       type: "lipsync",
       projectId: input.projectId,
       jobId: "",
-      payload: {
-        facePath: faceLocal,
-        audioPath: audioLocal,
-        width: clipW,
-        height: clipH,
-      },
+      payload,
     });
 
     const rel = `${projectPaths(input.projectId).lipsync}/talking.mp4`;

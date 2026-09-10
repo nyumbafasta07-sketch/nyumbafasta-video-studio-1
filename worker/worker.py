@@ -23,6 +23,7 @@ import struct
 import subprocess
 import tempfile
 import threading
+import time
 import uuid
 import wave
 import zlib
@@ -134,17 +135,134 @@ GENERATORS = {"voice": _gen_voice, "face": _gen_face, "lipsync": _gen_lipsync}
 MODELS = {"voice": "mock-tone-v1", "face": "mock-portrait-v1", "lipsync": "mock-lipbar-v1"}
 
 
+# --------------------------- training (mock, mirrors src/lib/training) --------
+
+def _h(s: str) -> int:
+    h = 2166136261
+    for ch in s:
+        h ^= ord(ch)
+        h = (h * 16777619) & 0xFFFFFFFF
+    return h
+
+
+def _rand(seed: int):
+    a = [seed & 0xFFFFFFFF]
+
+    def nxt():
+        a[0] = (a[0] + 0x6D2B79F5) & 0xFFFFFFFF
+        t = a[0]
+        t = (t ^ (t >> 15)) * (1 | t) & 0xFFFFFFFF
+        t = (t + ((t ^ (t >> 7)) * (61 | t) & 0xFFFFFFFF)) & 0xFFFFFFFF ^ t
+        return ((t ^ (t >> 14)) & 0xFFFFFFFF) / 4294967296
+
+    return nxt
+
+
+def _c10(x: float) -> float:
+    return max(1.0, min(10.0, round(x * 10) / 10))
+
+
+VOICE_KEYS = ["pronunciation_tz", "accent_tz", "naturalness", "pacing", "pauses",
+              "emphasis", "breathing", "code_switch", "realism"]
+FACE_KEYS = ["identity", "no_drift", "skin_realism", "blinking", "head_motion", "realism"]
+STYLE_KEYS = ["sentence_length", "pace", "pause_pattern", "emphasis_pattern", "cta_style"]
+
+
+def _keys_for(profile: str):
+    if profile == "voice":
+        return VOICE_KEYS
+    if profile == "speaking_style":
+        return STYLE_KEYS
+    return FACE_KEYS
+
+
+def _t_ingest(payload: dict):
+    name = str(payload.get("filename", "clip"))
+    b64 = payload.get("fileB64") or ""
+    size = int(len(b64) * 3 / 4)
+    r = _rand(_h(name + str(size)))
+    base = 4 if size < 400_000 else 7 if size < 3_000_000 else 8.5
+    score = _c10(base + (r() - 0.5) * 3)
+    status = "GOOD FOR TRAINING"
+    if score < 4:
+        status = "TOO MUCH BACKGROUND NOISE"
+    elif score < 5.5:
+        status = "NEEDS BETTER AUDIO"
+    return {"result": {"qualityScore": score, "qualityStatus": status,
+                       "meta": {"est_speech_seconds": round(size / 120000),
+                                "est_frames": round(size / 500000 * 25)}}}, None, None
+
+
+def _t_build_dataset(payload: dict):
+    vids = payload.get("videos", [])
+    speech = sum(float((v.get("meta") or {}).get("est_speech_seconds", 0)) for v in vids)
+    frames = sum(int((v.get("meta") or {}).get("est_frames", 0)) for v in vids)
+    ok = sum(1 for v in vids if v.get("quality_status") == "GOOD FOR TRAINING")
+    return {"result": {"clipCount": round(speech / 6), "speechSeconds": round(speech),
+                       "frameCount": frames,
+                       "faceOkRatio": round(ok / len(vids), 2) if vids else 0}}, None, None
+
+
+def _t_train(payload: dict, set_stage=None):
+    for st in ("preprocessing", "transcribing", "building_dataset", "training", "evaluating"):
+        if set_stage:
+            set_stage(st)
+        time.sleep(0.6)
+    profile = str(payload.get("profile", "voice"))
+    stats = payload.get("datasetStats", {})
+    mins = float(stats.get("speechSeconds", 0)) / 60
+    r = _rand(_h(profile + str(payload.get("datasetId")) + str(payload.get("baseModel"))))
+    curve = 8.4 * (1 - math.exp(-mins / 12))
+    penalty = (mins - 45) / 40 if mins > 45 else 0
+    agg = _c10(curve - penalty + (r() - 0.5) * 1.2)
+    breakdown = {k: _c10(agg + (r() - 0.5) * 2) for k in _keys_for(profile)}
+    return {"result": {"baseModel": payload.get("baseModel", ""), "evalScore": agg,
+                       "evalBreakdown": breakdown, "gpuUsed": "mock worker",
+                       "license": "n/a (mock)", "kind": "MOCK"}}, None, None
+
+
+def _t_evaluate(payload: dict):
+    profile = str(payload.get("profile", "voice"))
+    is_face = profile in ("face_identity", "face_performance")
+    text = str(payload.get("scriptText", ""))
+    words = max(1, len(text.split()))
+    if is_face:
+        data, mime, _ = _gen_face({"width": 480, "height": 600})
+    else:
+        data, mime, _ = _gen_voice({"text": text, "seconds": max(2, words / 2.3)})
+    r = _rand(_h(str(payload.get("versionId")) + str(payload.get("testKey"))))
+    scores = {k: _c10(4 + 1.4 + (r() - 0.5) * 3) for k in _keys_for(profile)}
+    return {"result": {"scores": scores, "kind": "MOCK"}}, data, mime
+
+
+TRAINING = {"ingest": _t_ingest, "build_dataset": _t_build_dataset,
+            "train": _t_train, "evaluate": _t_evaluate}
+
+
 def _process(job_id: str, task: dict) -> None:
     with LOCK:
         JOBS[job_id]["status"] = "running"
+    ttype = task.get("type")
+    payload = task.get("payload", {})
     try:
-        gen = GENERATORS[task["type"]]
-        data, mime, meta = gen(task.get("payload", {}))
+        if ttype in GENERATORS:
+            data, mime, meta = GENERATORS[ttype](payload)
+            with LOCK:
+                JOBS[job_id].update(status="done", artifact=data, mime=mime,
+                                    kind="MOCK", model=MODELS[ttype], meta=meta)
+            return
+
+        if ttype == "train":
+            def set_stage(s):
+                with LOCK:
+                    JOBS[job_id]["stage"] = s
+            body, data, mime = _t_train(payload, set_stage)
+        else:
+            body, data, mime = TRAINING[ttype](payload)
+
         with LOCK:
-            JOBS[job_id].update(
-                status="done", artifact=data, mime=mime, kind="MOCK",
-                model=MODELS[task["type"]], meta=meta,
-            )
+            JOBS[job_id].update(status="done", result=body.get("result", {}),
+                                artifact=data, mime=mime, kind="MOCK", model=f"mock-{ttype}")
     except Exception as exc:  # noqa: BLE001
         with LOCK:
             JOBS[job_id].update(status="error", error=str(exc))
@@ -181,20 +299,24 @@ class Handler(BaseHTTPRequestHandler):
             if not job:
                 return self._json(404, {"error": "no such job"})
             if job["status"] == "done":
-                return self._json(200, {
-                    "status": "done",
-                    "artifactUrl": f"/artifacts/{jid}",
-                    "mime": job["mime"], "kind": job["kind"],
-                    "model": job["model"], "meta": job["meta"],
-                })
+                resp = {
+                    "status": "done", "kind": job.get("kind", "MOCK"),
+                    "model": job.get("model", ""), "meta": job.get("meta", {}),
+                }
+                if job.get("artifact") is not None:
+                    resp["artifactUrl"] = f"/artifacts/{jid}"
+                    resp["mime"] = job.get("mime")
+                if "result" in job:
+                    resp["result"] = job["result"]
+                return self._json(200, resp)
             if job["status"] == "error":
                 return self._json(200, {"status": "error", "error": job.get("error", "")})
-            return self._json(200, {"status": job["status"]})
+            return self._json(200, {"status": job["status"], "stage": job.get("stage", "")})
         if self.path.startswith("/artifacts/"):
             jid = self.path.split("/", 2)[2]
             with LOCK:
                 job = JOBS.get(jid)
-            if not job or job.get("status") != "done":
+            if not job or job.get("status") != "done" or job.get("artifact") is None:
                 return self._json(404, {"error": "not ready"})
             data = job["artifact"]
             self.send_response(200)
@@ -212,7 +334,7 @@ class Handler(BaseHTTPRequestHandler):
             return self._json(404, {"error": "not found"})
         length = int(self.headers.get("Content-Length", "0"))
         task = json.loads(self.rfile.read(length) or b"{}")
-        if task.get("type") not in GENERATORS:
+        if task.get("type") not in GENERATORS and task.get("type") not in TRAINING:
             return self._json(400, {"error": "bad task type"})
         jid = uuid.uuid4().hex
         with LOCK:
