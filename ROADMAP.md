@@ -38,18 +38,31 @@ Cannot proceed on autopilot. Needs from the founder: authorized voice
 recordings, a GPU path (Colab first), and final approval of a model after it
 passes the Tanzania bar (§4).
 
-- [x] `MODEL_EVALUATION.md` criteria + candidate shortlist (GPU-free prep)
-- [x] `TANZANIA_VOICE_BENCHMARK.md` — test sentences + 1-10 scoring grid
-- [ ] Founder provides authorized voice recordings (see brief §8.2)
-- [ ] Founder picks the GPU path (Colab free/Pro) and shares access
-- [ ] Run each shortlisted model on the benchmark sentences; score against §4
-- [ ] Stand up the `http` GPUProvider against Colab; document in `MODEL_DEPLOYMENT.md`
+- [x] `MODEL_EVALUATION.md` criteria + candidate shortlist
+- [x] `TANZANIA_VOICE_BENCHMARK.md` — 27 test sentences + scoring grid
+- [x] Colab benchmarked conditioning candidates against §4:
+      - XTTS v2 / coqui-tts — install too brittle on Colab; no Swahili anyway
+      - Chatterbox (MIT) — English-only timbre check
+      - **MMS-TTS (swh)** — runs; founder verdict: FAILS §4 (slightly robotic,
+        accent drifts American on some words). Band-aids added (slower rate,
+        `pronunciation_fixes.json`) — cosmetic only.
+- [x] Conclusion: zero-shot conditioning can't hit §4 → fine-tune is justified
+      (brief §8.1)
+- [x] `worker/colab/ingest.py` + `ingest.ipynb` — §8.2 ingestion (audio →
+      silence-split → Whisper transcribe → quality score + face crops)
+- [ ] **Founder gathers authorized recordings** (20–40 min, varied topics) ← now
+- [ ] Run ingestion → clean `dataset/metadata.csv`
+- [ ] Fine-tune notebook (VITS/Piper on founder voice) + eval vs the 27 sentences
 - [ ] Integrate winner behind `VoiceProvider`; keep mock as fallback
-- [ ] Training Studio: voice profile ingestion (brief §8) — only if conditioning
-      can't hit the bar
 
 ## Phase 4 — Real Face / Avatar
 
+Fed by the same ingestion (`ingest.py` already saves face crops). Blocked on the
+same recordings.
+
+- [x] Face-crop extraction + quality flags in `ingest.py` (found ratio, face
+      fraction, sharpness → `FACE NOT CLEAR ENOUGH` / `FACE BLURRY`)
+- [ ] Phase 4 candidate research in `MODEL_EVALUATION.md`
 - [ ] Same discipline behind `FaceProvider` / `AvatarProvider`
 - [ ] Face identity profile + facial performance profile (brief §8.3)
 - [ ] Identity-consistency checks: no drift, no beautification
