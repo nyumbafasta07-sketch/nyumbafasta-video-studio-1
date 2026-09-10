@@ -4,6 +4,36 @@ Status: **PLACEHOLDER — Phase 3+.** What makes the cloud → local migration
 mechanical instead of a rewrite (brief §9). One section per real model, filled in
 when it is integrated.
 
+## Phase 3 voice candidates — measured values TBD
+
+Run `worker/colab/voice_worker.py` (see `worker/colab/RUN_ON_COLAB.md`), then
+fill the blanks from what you actually observe. Do not copy vendor claims.
+
+### Coqui XTTS v2 — voice (zero-shot clone)
+- Implements interface: `VoiceProvider` (via `GPU_PROVIDER=http`)
+- Provider name (env): `xtts`  (worker `--backend xtts`)
+- Weights / source: `tts_models/multilingual/multi-dataset/xtts_v2` (coqui-tts)
+- Licence: **Coqui Public Model Licence — verify commercial terms before shipping**
+- Format: Coqui TTS checkpoint     Python: 3.10+   CUDA: ____   Torch: ____
+- Minimum VRAM: ____ (T4 16 GB expected to be enough)
+- Reference clip: one ~10–20s mono wav of the founder
+- Swahili: **not an official language**; worker forces `language="sw"` — record
+  whether pronunciation/accent passes §4 or fails (expected risk)
+- Cold start: ____   Warm inference: ____ s per sentence
+- Exact command: `python voice_worker.py --mode serve --backend xtts --ref REF.wav --port 8800`
+- Worker exposure: cloudflared tunnel (Colab) / LAN host:port (local)
+- Notes / gotchas:
+
+### Meta MMS-TTS (swh) — voice (single-speaker BASELINE, not a clone)
+- Purpose: accent/pronunciation reference to score cloners against — NOT a
+  founder-voice candidate
+- Source: `facebook/mms-tts-swh` (transformers `VitsModel`)
+- Licence: CC-BY-NC 4.0 (non-commercial — baseline use only)
+- Python: 3.10+   Torch: ____   VRAM: small
+- Exact command: `python voice_worker.py --mode benchmark --backend mms --out ./out`
+
+---
+
 ## Template (copy per model)
 
 ```

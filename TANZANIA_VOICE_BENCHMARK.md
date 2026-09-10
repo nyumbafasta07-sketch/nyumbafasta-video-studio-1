@@ -25,6 +25,9 @@ believe a real Tanzanian creator recorded this?"*
 
 ---
 
+Machine-readable copy for the tooling: `worker/colab/benchmark_sentences.json`
+(keep the two in sync).
+
 ## Test sentences
 
 ### A. Normal / conversational
