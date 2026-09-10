@@ -1,33 +1,32 @@
 #!/usr/bin/env python3
 """
-Phase 3 voice worker — EXPERIMENTAL, GPU-required, NOT YET TESTED.
+Phase 3 voice worker — EXPERIMENTAL, GPU-required, NOT production.
 
-Two jobs:
-  --mode benchmark   generate every TANZANIA_VOICE_BENCHMARK.md sentence so the
-                     founder can listen and score against the §4 bar.
-  --mode serve       expose worker/contract.md over HTTP so the Next.js app can
-                     use it as GPU_PROVIDER=http (voice task only, for now).
+Modes:
+  --mode benchmark   generate the TANZANIA_VOICE_BENCHMARK.md sentences to listen
+                     to and score against the §4 bar.
+  --mode serve       expose worker/contract.md over HTTP (voice task only) so the
+                     Next.js app can use it as GPU_PROVIDER=http.
 
-Two backends (pick with --backend), because no open zero-shot cloner officially
-supports Tanzanian Swahili — you compare them:
-  xtts   Coqui XTTS v2 — clones the founder's voice from a ~10s reference.
-         Swahili is NOT in XTTS v2's official language list; we force "sw" and
-         you judge whether the pronunciation/accent is acceptable (§4). This is
-         the candidate most likely to fail the accent gate — that's the point of
-         testing it.
-  mms    Meta MMS-TTS (swh) — real Swahili, but a single fixed speaker and no
-         cloning. Use it as the pronunciation/accent BASELINE to score against.
+Backends (--backend):
+  mms    Meta MMS-TTS (swh). Real Swahili, single fixed speaker, NO cloning.
+         Reliable. This is the pronunciation / accent BASELINE.
+  xtts   Coqui XTTS v2. Clones the founder's voice from a reference clip, but has
+         NO Swahili — you pass --lang (default en) and use it only to judge
+         "does this sound like me?" (timbre), not Swahili correctness.
 
-Nothing here is production. Label every output MOCK/EXPERIMENTAL, never blur
-(brief §0). Fill MODEL_DEPLOYMENT.md with what you actually observe.
+--ref may be a .wav OR a video/other audio file; it is auto-converted with
+ffmpeg to a trimmed mono wav.
+
+Label every output MOCK / EXPERIMENTAL — never blur (brief §0).
 """
 from __future__ import annotations
 
 import argparse
-import io
 import json
 import os
 import pathlib
+import subprocess
 import threading
 import uuid
 import wave
@@ -36,11 +35,42 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 HERE = pathlib.Path(__file__).parent
 SENTENCES = json.loads((HERE / "benchmark_sentences.json").read_text())["sentences"]
 
+# English "voice ID card" lines — only for the xtts timbre check.
+XTTS_IDENTITY = [
+    {"id": "ID1", "category": "identity-en",
+     "text": "Hi, this is a short sample of my natural speaking voice for testing."},
+    {"id": "ID2", "category": "identity-en",
+     "text": "I run a business and I make content about marketing and money."},
+    {"id": "ID3", "category": "identity-en",
+     "text": "If this sounds like me, the voice cloning is working well enough."},
+]
+
 MODEL_NAMES = {"xtts": "coqui/xtts_v2", "mms": "facebook/mms-tts-swh"}
 
 
 # --------------------------------------------------------------------------- #
-#  Backends. Each returns a path to a wav file it wrote.                      #
+#  reference audio                                                           #
+# --------------------------------------------------------------------------- #
+
+def ensure_wav(path: str, start: float = 0.0, dur: float = 25.0, sr: int = 22050) -> str:
+    """Return a mono wav path. Converts video / m4a / mp3 with ffmpeg and trims."""
+    if not path:
+        return path
+    if path.lower().endswith(".wav") and start == 0.0 and dur is None:
+        return path
+    out = "/tmp/_reference.wav"
+    cmd = ["ffmpeg", "-y", "-i", path, "-vn", "-ac", "1", "-ar", str(sr)]
+    if start:
+        cmd += ["-ss", str(start)]
+    if dur:
+        cmd += ["-t", str(dur)]
+    cmd += [out]
+    subprocess.run(cmd, check=True, capture_output=True)
+    return out
+
+
+# --------------------------------------------------------------------------- #
+#  backends                                                                  #
 # --------------------------------------------------------------------------- #
 
 _xtts = None
@@ -50,7 +80,29 @@ _mms = None
 def _load_xtts():
     global _xtts
     if _xtts is None:
-        from TTS.api import TTS  # coqui-tts
+        import torch
+
+        # torch >= 2.6 defaults torch.load(weights_only=True), which breaks the
+        # XTTS v2 checkpoint. Force the old behaviour.
+        _orig_load = torch.load
+
+        def _patched_load(*a, **k):
+            k.setdefault("weights_only", False)
+            return _orig_load(*a, **k)
+
+        torch.load = _patched_load
+        try:
+            from TTS.tts.configs.xtts_config import XttsConfig
+            from TTS.tts.models.xtts import XttsAudioConfig, XttsArgs
+            from TTS.config.shared_configs import BaseDatasetConfig
+
+            torch.serialization.add_safe_globals(
+                [XttsConfig, XttsAudioConfig, XttsArgs, BaseDatasetConfig]
+            )
+        except Exception:
+            pass
+
+        from TTS.api import TTS
 
         _xtts = TTS("tts_models/multilingual/multi-dataset/xtts_v2")
         if os.environ.get("FORCE_CPU") != "1":
@@ -61,8 +113,7 @@ def _load_xtts():
 def _load_mms():
     global _mms
     if _mms is None:
-        from transformers import VitsModel, AutoTokenizer  # type: ignore
-        import torch  # noqa: F401
+        from transformers import AutoTokenizer, VitsModel  # type: ignore
 
         tok = AutoTokenizer.from_pretrained("facebook/mms-tts-swh")
         model = VitsModel.from_pretrained("facebook/mms-tts-swh")
@@ -70,28 +121,28 @@ def _load_mms():
     return _mms
 
 
-def synth_xtts(text: str, ref_wav: str, out_path: str) -> str:
+def synth_xtts(text: str, ref_wav: str, out_path: str, lang: str = "en") -> str:
     if not ref_wav or not os.path.exists(ref_wav):
-        raise ValueError("xtts backend needs --ref pointing at a real wav")
-    tts = _load_xtts()
-    # "sw" is unsupported officially; this may raise. Caller records the result.
-    tts.tts_to_file(text=text, speaker_wav=ref_wav, language="sw", file_path=out_path)
+        raise ValueError("xtts needs --ref pointing at a real audio/video file")
+    _load_xtts().tts_to_file(
+        text=text, speaker_wav=ref_wav, language=lang, file_path=out_path
+    )
     return out_path
 
 
-def synth_mms(text: str, ref_wav: str, out_path: str) -> str:
-    import numpy as np  # noqa
+def synth_mms(text: str, ref_wav: str, out_path: str, lang: str = "sw") -> str:
     import torch
 
     tok, model = _load_mms()
     inputs = tok(text, return_tensors="pt")
     with torch.no_grad():
         wav = model(**inputs).waveform.squeeze().cpu().numpy()
-    pcm = (wav / max(1e-9, abs(wav).max()) * 32767).astype("<i2")
+    peak = max(1e-9, float(abs(wav).max()))
+    pcm = (wav / peak * 32767).astype("<i2")
     with wave.open(out_path, "wb") as w:
         w.setnchannels(1)
         w.setsampwidth(2)
-        w.setframerate(model.config.sampling_rate)
+        w.setframerate(int(model.config.sampling_rate))
         w.writeframes(pcm.tobytes())
     return out_path
 
@@ -100,31 +151,40 @@ BACKENDS = {"xtts": synth_xtts, "mms": synth_mms}
 
 
 # --------------------------------------------------------------------------- #
-#  Mode: benchmark                                                           #
+#  mode: benchmark                                                           #
 # --------------------------------------------------------------------------- #
 
-def run_benchmark(backend: str, ref_wav: str, out_dir: str) -> None:
+def run_benchmark(backend: str, ref: str, out_dir: str, lang: str) -> None:
+    ref_wav = ensure_wav(ref) if ref else ""
+    if backend == "xtts" and ref_wav:
+        print(f"reference converted -> {ref_wav}")
+
+    items = list(SENTENCES)
+    if backend == "xtts":
+        items = XTTS_IDENTITY + items
+
     fn = BACKENDS[backend]
     root = pathlib.Path(out_dir) / backend
     root.mkdir(parents=True, exist_ok=True)
     results = []
-    for s in SENTENCES:
+    for s in items:
         out = str(root / f"{s['id']}_{s['category']}.wav")
         status = "ok"
         try:
-            fn(s["text"], ref_wav, out)
+            fn(s["text"], ref_wav, out, lang)
         except Exception as exc:  # noqa: BLE001
-            status = f"ERROR: {exc}"
-            print(f"  {s['id']}: {status}")
+            status = f"ERROR: {type(exc).__name__}: {exc}"
+        print(f"  {s['id']:5s} {s['category']:14s} {status}")
         results.append({"id": s["id"], "category": s["category"], "status": status, "file": out})
     (root / "_results.json").write_text(json.dumps(results, indent=2, ensure_ascii=False))
     ok = sum(r["status"] == "ok" for r in results)
-    print(f"\n{backend}: {ok}/{len(results)} sentences generated -> {root}")
-    print("Listen to each, then score in TANZANIA_VOICE_BENCHMARK.md / MODEL_EVALUATION.md.")
+    print(f"\n{backend}: {ok}/{len(results)} generated -> {root}")
+    if ok == 0:
+        print("NOTHING generated — read the ERROR lines above; that is the real problem.")
 
 
 # --------------------------------------------------------------------------- #
-#  Mode: serve  (worker/contract.md, voice task only)                        #
+#  mode: serve  (worker/contract.md, voice task only)                        #
 # --------------------------------------------------------------------------- #
 
 JOBS: dict[str, dict] = {}
@@ -132,26 +192,26 @@ LOCK = threading.Lock()
 TOKEN = os.environ.get("GPU_WORKER_TOKEN", "")
 
 
-def _serve_process(job_id: str, task: dict, backend: str, ref_wav: str) -> None:
+def _serve_process(job_id: str, task: dict, backend: str, ref_wav: str, lang: str) -> None:
     with LOCK:
         JOBS[job_id]["status"] = "running"
     try:
         payload = task.get("payload", {})
         tmp = f"/tmp/{job_id}.wav"
-        BACKENDS[backend](payload["text"], ref_wav, tmp)
+        BACKENDS[backend](payload["text"], ref_wav, tmp, lang)
         data = pathlib.Path(tmp).read_bytes()
         with LOCK:
             JOBS[job_id].update(
                 status="done", artifact=data, mime="audio/wav",
                 kind="EXPERIMENTAL", model=MODEL_NAMES[backend],
-                meta={"backend": backend, "emotion": payload.get("emotion")},
+                meta={"backend": backend, "lang": lang, "emotion": payload.get("emotion")},
             )
     except Exception as exc:  # noqa: BLE001
         with LOCK:
-            JOBS[job_id].update(status="error", error=str(exc))
+            JOBS[job_id].update(status="error", error=f"{type(exc).__name__}: {exc}")
 
 
-def make_handler(backend: str, ref_wav: str):
+def make_handler(backend: str, ref_wav: str, lang: str):
     class H(BaseHTTPRequestHandler):
         def _auth_ok(self):
             return not TOKEN or self.headers.get("Authorization") == f"Bearer {TOKEN}"
@@ -213,19 +273,19 @@ def make_handler(backend: str, ref_wav: str):
             with LOCK:
                 JOBS[jid] = {"status": "queued"}
             threading.Thread(
-                target=_serve_process, args=(jid, task, backend, ref_wav), daemon=True
+                target=_serve_process, args=(jid, task, backend, ref_wav, lang), daemon=True
             ).start()
             return self._json(202, {"jobId": jid})
 
     return H
 
 
-def run_serve(backend: str, ref_wav: str, port: int) -> None:
-    if backend == "xtts" and (not ref_wav or not os.path.exists(ref_wav)):
-        raise SystemExit("serve mode with xtts needs --ref <founder reference wav>")
-    print(f"[voice-worker] backend={backend} listening on :{port}  auth={'on' if TOKEN else 'off'}")
-    print("Expose it (Colab): cloudflared tunnel --url http://localhost:%d" % port)
-    ThreadingHTTPServer(("0.0.0.0", port), make_handler(backend, ref_wav)).serve_forever()
+def run_serve(backend: str, ref: str, port: int, lang: str) -> None:
+    ref_wav = ensure_wav(ref) if ref else ""
+    if backend == "xtts" and not ref_wav:
+        raise SystemExit("serve mode with xtts needs --ref <founder reference clip>")
+    print(f"[voice-worker] backend={backend} lang={lang} port={port} auth={'on' if TOKEN else 'off'}")
+    ThreadingHTTPServer(("0.0.0.0", port), make_handler(backend, ref_wav, lang)).serve_forever()
 
 
 # --------------------------------------------------------------------------- #
@@ -234,14 +294,15 @@ def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--mode", choices=["benchmark", "serve"], required=True)
     ap.add_argument("--backend", choices=["xtts", "mms"], required=True)
-    ap.add_argument("--ref", default="", help="founder reference wav (xtts only)")
-    ap.add_argument("--out", default="./out", help="benchmark output dir")
+    ap.add_argument("--ref", default="", help="founder reference clip (wav or video)")
+    ap.add_argument("--out", default="./out")
     ap.add_argument("--port", type=int, default=8800)
+    ap.add_argument("--lang", default="en", help="xtts language tag (xtts has no Swahili)")
     a = ap.parse_args()
     if a.mode == "benchmark":
-        run_benchmark(a.backend, a.ref, a.out)
+        run_benchmark(a.backend, a.ref, a.out, a.lang)
     else:
-        run_serve(a.backend, a.ref, a.port)
+        run_serve(a.backend, a.ref, a.port, a.lang)
 
 
 if __name__ == "__main__":
