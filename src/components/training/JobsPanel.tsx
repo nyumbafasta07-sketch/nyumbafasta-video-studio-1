@@ -8,6 +8,7 @@ const PROFILES = [
   { key: "face_identity", label: "Face Identity (L2)" },
   { key: "speaking_style", label: "Speaking Style (L4)" },
   { key: "face_performance", label: "Face Performance (L5)" },
+  { key: "lipsync", label: "Lip-Sync (L5)" },
 ];
 
 interface Dataset {

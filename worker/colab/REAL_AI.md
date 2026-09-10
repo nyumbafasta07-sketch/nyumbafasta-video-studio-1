@@ -1,6 +1,7 @@
 # Real AI from the app UI — how it fits together
 
-**Status: EXPERIMENTAL, untested. Voice only (Phase 3 / L1).**
+**Status: EXPERIMENTAL, untested. Voice + Face + Lip-sync — all from the same
+uploaded videos.**
 
 The app never runs models itself (no GPU, brief §2.2 / §9). Real work happens on
 a **worker** you run wherever you have a GPU; the app drives it over HTTP and you
@@ -28,23 +29,33 @@ point it there in **Settings → Compute**.
 | Upload videos | Training → Videos | stored in `storage/raw/`; worker extracts audio, runs **Whisper (sw)**, scores quality |
 | Mark "Add to dataset" | Training → Videos | your explicit choice — nothing trains without it (§8.2) |
 | Build dataset | Training → Datasets | worker assembles an LJSpeech dataset from the transcribed clips |
-| **Train** (voice) | Training → Jobs | worker runs a **Piper fine-tune** from a base checkpoint → `<modelRef>.onnx`. Minutes → ~1h (`PIPER_EPOCHS`). |
-| Evaluate | automatic after train | worker synthesises the 6 fixed Swahili scripts with the new model |
-| Listen + Promote | Training → Models | you judge against the Tanzania bar (§4); **Promote to PRODUCTION** |
-| Create Video | Create Video | your script synthesises with the PRODUCTION voice model |
+| **Train** — one job per profile, all from the same videos: |||
+| &nbsp;&nbsp;`voice` | Training → Jobs | **Piper fine-tune** → `<modelRef>.onnx` (minutes → ~1h) |
+| &nbsp;&nbsp;`face_identity` | Training → Jobs | scans your video, picks the **best real front-facing reference frame** (+ alternates), scores identity consistency. NOT a cartoon — a frame of you. |
+| &nbsp;&nbsp;`face_performance` | Training → Jobs | pulls a short natural talking clip (blinks, head motion) for expression transfer |
+| &nbsp;&nbsp;`lipsync` | Training → Jobs | prepares your face for the talking-head model (SadTalker / LivePortrait) |
+| Evaluate | automatic after each train | voice → 6 synthesised Swahili clips; face → the reference frame; performance/lipsync → a short **talking-head video** on the fixed scripts |
+| Watch + Promote | Training → Models | judge each against §4; **Promote to PRODUCTION** |
+| Create Video | Create Video | your voice + your face + real lip-sync |
 
 Improvements are **saved as versions** — v1, v2, … never overwritten. A/B compare
 them on the Models page.
 
-## What is NOT real yet
+## What is NOT real / not guaranteed
 
-- **Face / lip-sync**: `gpu_worker.py` still mocks these (Phase 4/5). A generated
-  video has your real *voice* over a mock face + mock lip-sync until then.
-- **Quality**: no open model has passed the Tanzania bar for Tanzanian Swahili
-  yet. The Piper fine-tune is unproven — the first results may be flat/robotic.
-  If so we escalate to an XTTS / F5 fine-tune (needs a bigger GPU box).
-- **`evalScore`** from the worker is a rough proxy (from usable speech minutes).
-  The real judgement is you listening to the eval clips.
+- **Face "training" is not a fine-tune.** SadTalker / LivePortrait are
+  inference-time animators: `face_identity` training = *selecting the best
+  reference from your video*; the animation happens at generate time.
+- **Photorealism depends on the GPU.** Free-tier T4 → decent but not
+  indistinguishable. "A viewer can't tell it's AI" (§4/§15) is the bar to
+  iterate toward, not a first-run guarantee. Ceiling models (Hallo2 / EMO) need
+  an A100-class GPU.
+- **Quality unproven.** No open model has passed the Tanzania bar for Tanzanian
+  Swahili voice yet (MMS failed; Piper fine-tune untested). Escalation for
+  voice = XTTS / F5 fine-tune on a bigger box.
+- **`evalScore`** from the worker is a rough proxy. The real judgement is you
+  watching / listening to the eval clips on the Models page.
+- **`speaking_style`** training is not implemented (Phase 6).
 
 ## Getting videos to the worker
 

@@ -104,13 +104,24 @@ const VOICE_KEYS = [
   "code_switch",
   "realism",
 ];
-const FACE_KEYS = ["identity", "no_drift", "skin_realism", "blinking", "head_motion", "realism"];
+const IDENTITY_KEYS = ["identity_match", "no_drift", "skin_realism", "no_cartoon", "lighting", "realism"];
+const PERF_KEYS = ["blinking", "brow_motion", "head_motion", "eye_motion", "micro_expr", "timing"];
+const LIPSYNC_KEYS = ["sync_accuracy", "swahili_phonemes", "open_vowels", "bilabials", "no_smear", "realism"];
 const STYLE_KEYS = ["sentence_length", "pace", "pause_pattern", "emphasis_pattern", "cta_style"];
 
 function keysFor(profile: Profile): string[] {
-  if (profile === "voice") return VOICE_KEYS;
-  if (profile === "speaking_style") return STYLE_KEYS;
-  return FACE_KEYS;
+  switch (profile) {
+    case "voice":
+      return VOICE_KEYS;
+    case "speaking_style":
+      return STYLE_KEYS;
+    case "face_identity":
+      return IDENTITY_KEYS;
+    case "face_performance":
+      return PERF_KEYS;
+    case "lipsync":
+      return LIPSYNC_KEYS;
+  }
 }
 
 /* ---- mock implementation ---- */
@@ -202,13 +213,16 @@ export class MockTrainingProvider implements TrainingProvider {
     modelRef?: string;
   }): Promise<EvalResult> {
     const storage = getStorage();
-    const isFace = input.profile === "face_identity" || input.profile === "face_performance";
-    const rel = `training/evals/${input.versionId}/${input.testKey}.${isFace ? "png" : "wav"}`;
+    const isVisual =
+      input.profile === "face_identity" ||
+      input.profile === "face_performance" ||
+      input.profile === "lipsync";
+    const rel = `training/evals/${input.versionId}/${input.testKey}.${isVisual ? "png" : "wav"}`;
     const words = input.scriptText.split(/\s+/).filter(Boolean).length;
-    const data = isFace
+    const data = isVisual
       ? makeMockFacePng({ width: 480, height: 600 })
       : makeMockWav({ seconds: Math.max(2, words / 2.3), wordCount: words });
-    await storage.put({ path: rel, data, mime: isFace ? "image/png" : "audio/wav" });
+    await storage.put({ path: rel, data, mime: isVisual ? "image/png" : "audio/wav" });
 
     const r = rng(hash(input.versionId + input.testKey));
     const scores: Record<string, number> = {};

@@ -14,7 +14,7 @@ export async function GET() {
 }
 
 const Body = z.object({
-  profile: z.enum(["voice", "speaking_style", "face_identity", "face_performance"]),
+  profile: z.enum(["voice", "speaking_style", "face_identity", "face_performance", "lipsync"]),
   datasetId: z.string().min(1),
   baseModel: z.string().max(200).optional().default(""),
   level: z.number().int().min(1).max(6).optional(),

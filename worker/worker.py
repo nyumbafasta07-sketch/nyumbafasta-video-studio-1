@@ -162,18 +162,18 @@ def _c10(x: float) -> float:
     return max(1.0, min(10.0, round(x * 10) / 10))
 
 
-VOICE_KEYS = ["pronunciation_tz", "accent_tz", "naturalness", "pacing", "pauses",
-              "emphasis", "breathing", "code_switch", "realism"]
-FACE_KEYS = ["identity", "no_drift", "skin_realism", "blinking", "head_motion", "realism"]
-STYLE_KEYS = ["sentence_length", "pace", "pause_pattern", "emphasis_pattern", "cta_style"]
+_KEYS = {
+    "voice": ["pronunciation_tz", "accent_tz", "naturalness", "pacing", "pauses",
+              "emphasis", "breathing", "code_switch", "realism"],
+    "face_identity": ["identity_match", "no_drift", "skin_realism", "no_cartoon", "lighting", "realism"],
+    "face_performance": ["blinking", "brow_motion", "head_motion", "eye_motion", "micro_expr", "timing"],
+    "lipsync": ["sync_accuracy", "swahili_phonemes", "open_vowels", "bilabials", "no_smear", "realism"],
+    "speaking_style": ["sentence_length", "pace", "pause_pattern", "emphasis_pattern", "cta_style"],
+}
 
 
 def _keys_for(profile: str):
-    if profile == "voice":
-        return VOICE_KEYS
-    if profile == "speaking_style":
-        return STYLE_KEYS
-    return FACE_KEYS
+    return _KEYS.get(profile, _KEYS["voice"])
 
 
 def _t_ingest(payload: dict):
@@ -223,7 +223,7 @@ def _t_train(payload: dict, set_stage=None):
 
 def _t_evaluate(payload: dict):
     profile = str(payload.get("profile", "voice"))
-    is_face = profile in ("face_identity", "face_performance")
+    is_face = profile in ("face_identity", "face_performance", "lipsync")
     text = str(payload.get("scriptText", ""))
     words = max(1, len(text.split()))
     if is_face:

@@ -135,6 +135,24 @@ describe("training orchestrator (end-to-end mock)", () => {
     expect(listVersions("voice")).toHaveLength(1);
   });
 
+  it("runs a job for every profile end-to-end (mock)", async () => {
+    for (const profile of [
+      "voice",
+      "face_identity",
+      "face_performance",
+      "lipsync",
+      "speaking_style",
+    ] as const) {
+      const ds = seedDataset();
+      const job = createTrainingJob({ profile, level: 1, datasetId: ds.id, baseModel: "b" });
+      const done = await runTrainingJob(job.id);
+      expect(done.state, profile).toBe("COMPLETED");
+      const v = getVersion(done.result_version_id!)!;
+      expect(v.profile).toBe(profile);
+      expect(listEvalRuns(v.id).length).toBe(6);
+    }
+  });
+
   it("fails cleanly when the dataset is gone before the job runs", async () => {
     const ds = seedDataset();
     const job = createTrainingJob({

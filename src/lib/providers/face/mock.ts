@@ -5,6 +5,7 @@
  */
 import { getStorage, projectPaths } from "../../storage";
 import { getGpu } from "../gpu";
+import { productionVersion } from "../../training/repo";
 import type { FaceProvider, FaceResult } from "../types";
 
 export class MockFaceProvider implements FaceProvider {
@@ -22,11 +23,17 @@ export class MockFaceProvider implements FaceProvider {
     const faceH = Math.round(input.height * 0.55);
 
     const gpu = getGpu();
+    // on a real worker, use the founder's trained PRODUCTION face identity
+    // profile (a real reference from the training video, not a cartoon)
+    let modelRef = "";
+    if (gpu.name !== "local-mock") {
+      modelRef = String(productionVersion("face_identity")?.config?.modelRef ?? "");
+    }
     const artifact = await gpu.execute({
       type: "face",
       projectId: input.projectId,
       jobId: "",
-      payload: { avatarId: input.avatarId, width: faceW, height: faceH },
+      payload: { avatarId: input.avatarId, width: faceW, height: faceH, modelRef },
     });
 
     const storage = getStorage();
