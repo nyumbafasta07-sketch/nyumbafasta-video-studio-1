@@ -79,6 +79,26 @@ Reason:   Brief §3 "CONFIRMED: single-user only ... a simple local
 
 ---
 
+Decision: Training Studio (brief §8) built as a mock-first control plane in the
+          app now, with all four profiles scaffolded (voice, speaking style,
+          face identity, face performance).
+Reason:   §8 says the Training Studio starts once the Phase 2 mock pipeline
+          works end-to-end — it does. Founder asked to drive training from the
+          UI and see where each profile is weak/strong. Same discipline as
+          Phase 2: `TrainingProvider` interface + `mock` impl that fakes
+          ingestion / dataset build / training / evaluation end-to-end with no
+          GPU; a `worker` impl routes to the Python GPU worker later with no UI
+          or orchestrator change. New tables (training_videos, datasets,
+          training_jobs, model_versions, eval_runs) are justified by §8.5
+          (versioning is a hard requirement — never overwrite a working model).
+          Rejected: waiting until a real model is picked (the founder needs the
+          control surface now to gather/mark data and reason about it);
+          building only the voice profile (founder explicitly chose all four).
+          The mock trainer's score rises with usable speech and dips past ~45
+          min to demonstrate §8.6 "more data is not automatically better".
+
+---
+
 Decision: Mock MP4 render uses the `ffmpeg-static` npm binary (no system ffmpeg).
 Reason:   The dev box has no system ffmpeg. `ffmpeg-static` ships a pinned
           binary via npm, keeping "npm install && npm run dev" self-contained.

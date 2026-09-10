@@ -126,7 +126,9 @@ storage/
 
 ## 5. Data model (SQLite, brief §6 minimal schema)
 
-`src/lib/schema.sql`. Seven tables, no `users` table (single-user).
+`src/lib/schema.sql`. Seven core tables, no `users` table (single-user). The
+Training Studio adds five more (§8): `training_videos`, `datasets`,
+`training_jobs`, `model_versions`, `eval_runs`.
 
 - `projects` — id, name, script_text, created_at, updated_at
 - `generation_jobs` — id, project_id, state, stage, stage_status, attempt,
@@ -161,16 +163,42 @@ or cookie values.
 
 ---
 
-## 8. What is intentionally NOT here yet
+## 8. Training Studio (brief §8) — `src/lib/training`, `/training`
 
-Real models, training studio, GPU code, Supabase, multi-user anything, captions,
+Control plane for building the founder's profiles. Training itself runs on GPU
+via the worker; the app manages data, jobs, versions, and evaluation.
+
+- **Seam:** `TrainingProvider` (`src/lib/training/provider.ts`) —
+  `ingestVideo` / `buildDataset` / `train` / `evaluate`. `mock` impl fakes all
+  four with no GPU (score rises with usable speech, dips past ~45 min to model
+  §8.6). `TRAINING_PROVIDER=worker` routes to the Python GPU worker later — no
+  UI/orchestrator change.
+- **Tables:** `training_videos` (uploads + quality score + explicit
+  `in_dataset` flag, §8.2), `datasets` (immutable snapshots, versioned),
+  `training_jobs` (staged like §7: PREPROCESSING → TRANSCRIBING →
+  BUILDING_DATASET → TRAINING → EVALUATING → COMPLETED/FAILED/CANCELLED),
+  `model_versions` (never overwritten; `experimental → approved → production`,
+  `rejected`/`archived` terminal; one production per profile), `eval_runs`
+  (fixed Swahili scripts §8.5, preview asset per run).
+- **Profiles** (§8.3, built independently): voice, speaking_style,
+  face_identity, face_performance. Levels L1–L6 (§8.4) tracked, not all built.
+- **Orchestrator:** `src/lib/training/orchestrator.ts` — same pattern as the
+  generation pipeline (staged, cancel-aware, in-process runner + sweep).
+- **Privacy (§8.7):** raw uploads under `storage/raw/`, kept, never served
+  except through the auth-gated `/api/training/assets` route which is confined
+  to the `training/` prefix (eval previews only — never raw or model files).
+
+## 9. What is intentionally NOT here yet
+
+Real models, real GPU training code, Supabase, multi-user anything, captions,
 b-roll, posting, timeline editor. See `FUTURE_FEATURES.md` and `ROADMAP.md`.
 The Python worker in `worker/` is a **contract reference**, not production
-inference.
+inference. The Training Studio above is **mock** — real training plugs in
+behind `TrainingProvider`.
 
 ---
 
-## 9. Folder structure
+## 10. Folder structure
 
 ```
 ENGINEERING_BRIEF.md   ARCHITECTURE.md  ROADMAP.md  DECISIONS.md

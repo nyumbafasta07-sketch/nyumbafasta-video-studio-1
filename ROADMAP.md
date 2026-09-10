@@ -56,6 +56,12 @@ passes the Tanzania bar (§4).
       silence-split → Whisper transcribe → quality score + face crops)
 - [x] Fine-tune notebook — `worker/colab/finetune_piper.ipynb` (Piper: MIT,
       offline, low VRAM; escalate to XTTS/F5 fine-tune if prosody too flat)
+- [x] **Training Studio in the app UI** (§8, branch `training-studio`) —
+      `/training`: upload videos + mark "Add to Training Dataset" + quality
+      scores; dataset versions; training jobs (mock, staged, cancellable);
+      model_versions with EXPERIMENTAL→APPROVED→PRODUCTION; fixed-script
+      evaluation + A/B compare. All 4 profiles scaffolded. `TrainingProvider`
+      mock now → `worker` (GPU) later, no UI change.
 - [ ] **Founder gathers authorized recordings** (20–40 min, varied topics) ← now
 - [ ] Run `ingest.ipynb` → clean `dataset/metadata.csv`
 - [ ] Run `finetune_piper.ipynb` → Founder Voice v1 → eval vs the 27 sentences
