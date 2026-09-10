@@ -28,8 +28,16 @@ a reason recorded in `DECISIONS.md`.
   at-a-time polling demonstrably can't keep up. (brief §6)
 - **Second user / STAFF role / RBAC** — single-user is CONFIRMED (brief §3). A
   second user is a future explicit decision, not something to architect for now.
-- **Public hosting / deployment target** — default is "runs locally". LAN access
-  from the founder's phone is the only near-term networking case.
+- **Public hosting / deployment target** — default is "runs locally" (brief §3,
+  §10). A GitHub Codespace already gives a stable *private* URL
+  (`…-3000.app.github.dev`, GitHub-auth gated, auto-started by `.devcontainer/`).
+  A truly public URL is rejected: it would put the founder's face / voice /
+  trained models on third-party infra behind only a password (§10), most easy
+  hosts are serverless and can't keep SQLite + `storage/`, and it still
+  wouldn't make the GPU worker permanent. If ever revisited it needs an
+  explicit founder decision + a VPS with a persistent volume, recorded in
+  `DECISIONS.md`. LAN access from the founder's phone at home is the sanctioned
+  networking case.
 
 ## Training Studio (real, but Phase 3+)
 
