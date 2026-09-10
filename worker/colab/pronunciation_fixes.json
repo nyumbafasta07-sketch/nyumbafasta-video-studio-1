@@ -1,0 +1,13 @@
+{
+  "_comment": "MMS-TTS band-aid: word -> phonetic respelling the way a Tanzanian says it when speaking Swahili. Applied (whole word, case-insensitive) before synthesis. Add a pair for every word you hear mispronounced in cell 8, then rerun. This does NOT fix the model's accent — it only patches individual words.",
+  "online": "onlaini",
+  "login": "logini",
+  "password": "pasiwadi",
+  "dashboard": "dashibodi",
+  "content": "kontenti",
+  "click": "klik",
+  "analytics": "analitiksi",
+  "hashtag": "hashtagi",
+  "bonus": "bonasi",
+  "link": "linki"
+}

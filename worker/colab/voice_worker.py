@@ -154,11 +154,42 @@ def synth_chatterbox(text: str, ref_wav: str, out_path: str, lang: str = "en") -
     return out_path
 
 
+# MMS mispronounces some words — respell them phonetically here. This is a
+# band-aid, not a fix for the accent (add pairs for words you hear wrong).
+# Loaded from pronunciation_fixes.json if present.
+_PRON_FIXES: dict[str, str] = {}
+_pf = HERE / "pronunciation_fixes.json"
+if _pf.exists():
+    try:
+        _PRON_FIXES = json.loads(_pf.read_text())
+    except Exception:
+        _PRON_FIXES = {}
+
+# knobs (env-overridable): MMS_RATE lower = slower/less clipped; MMS_NOISE higher
+# = more prosodic variation (too high = artefacts).
+MMS_RATE = float(os.environ.get("MMS_RATE", "0.85"))
+MMS_NOISE = float(os.environ.get("MMS_NOISE", "0.70"))
+
+
+def _apply_pron_fixes(text: str) -> str:
+    import re
+
+    for bad, good in _PRON_FIXES.items():
+        if bad.startswith("_") or not isinstance(good, str):
+            continue
+        text = re.sub(rf"\b{re.escape(bad)}\b", good, text, flags=re.IGNORECASE)
+    return text
+
+
 def synth_mms(text: str, ref_wav: str, out_path: str, lang: str = "sw") -> str:
     import torch
 
     tok, model = _load_mms()
-    inputs = tok(text, return_tensors="pt")
+    # VITS prosody knobs live on the config; set before the forward pass.
+    for attr, val in (("speaking_rate", MMS_RATE), ("noise_scale", MMS_NOISE)):
+        if hasattr(model.config, attr):
+            setattr(model.config, attr, val)
+    inputs = tok(_apply_pron_fixes(text), return_tensors="pt")
     with torch.no_grad():
         wav = model(**inputs).waveform.squeeze().cpu().numpy()
     peak = max(1e-9, float(abs(wav).max()))
