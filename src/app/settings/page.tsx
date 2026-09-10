@@ -11,13 +11,13 @@ export default function SettingsPage() {
     <Shell
       active="/settings"
       title="Settings"
-      subtitle="Compute is switchable here — point the app at any GPU worker without editing .env or restarting."
+      subtitle="Point the app at any GPU worker — no .env edit, no restart."
     >
       <SettingsForm />
       <div className="notice">
-        Single-user tool. To change the password, regenerate{" "}
-        <span className="mono">APP_PASSWORD_HASH</span> (<span className="mono">npm run hash-password</span>)
-        and restart. No user management by design (brief §3).
+        To change the app password, regenerate <span className="mono">APP_PASSWORD_HASH</span>{" "}
+        (<span className="mono">npm run hash-password</span>) and restart. No user management
+        by design.
       </div>
     </Shell>
   );

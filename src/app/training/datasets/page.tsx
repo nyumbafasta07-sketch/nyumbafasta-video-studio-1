@@ -10,9 +10,7 @@ export default function TrainingDatasetsPage() {
   bootstrap();
   return (
     <Shell active="/training" title="Training · Datasets">
-      <p>
-        <Link href="/training">← Training Studio</Link>
-      </p>
+      <p className="page-lead"><Link href="/training">← Training Studio</Link></p>
       <DatasetsPanel />
     </Shell>
   );

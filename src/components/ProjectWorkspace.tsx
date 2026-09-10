@@ -3,6 +3,8 @@
 import { useState } from "react";
 import { JobProgress } from "./JobProgress";
 import { ScriptFileInput } from "./ScriptFileInput";
+import { Icon } from "./Icons";
+import { toast } from "./ui/feedback";
 
 interface Opt {
   id: string;
@@ -10,8 +12,7 @@ interface Opt {
   status: string;
 }
 const EMOTIONS = ["Neutral", "Friendly", "Excited", "Serious", "Professional", "Storytelling"];
-// Which emotions the mock engine can actually act on. Others are honest no-ops
-// (brief §5: never fake a control the model doesn't support).
+// which emotions the mock engine can really act on (§5: don't fake a control)
 const SUPPORTED_EMOTIONS = new Set(["Neutral"]);
 
 export function ProjectWorkspace({
@@ -41,6 +42,7 @@ export function ProjectWorkspace({
   const [error, setError] = useState("");
 
   const dirty = script !== savedScript;
+  const step = !savedScript.trim() ? 1 : !activeJobId ? 3 : 4;
 
   async function saveScript() {
     setSavingScript(true);
@@ -50,7 +52,10 @@ export function ProjectWorkspace({
       body: JSON.stringify({ scriptText: script }),
     });
     setSavingScript(false);
-    if (res.ok) setSavedScript(script);
+    if (res.ok) {
+      setSavedScript(script);
+      toast("Script saved", "ok");
+    }
   }
 
   async function generate() {
@@ -78,30 +83,37 @@ export function ProjectWorkspace({
 
   return (
     <>
+      <div className="steps">
+        {["Script", "Voice", "Avatar", "Generate"].map((s, i) => (
+          <span key={s} className={`step${i + 1 === step ? " active" : i + 1 < step ? " done" : ""}`}>
+            <span className="n">{i + 1 < step ? "✓" : i + 1}</span>
+            {s}
+          </span>
+        ))}
+      </div>
+
       <div className="card">
-        <h3 style={{ marginTop: 0 }}>1 · Script</h3>
+        <div className="card-h">
+          <h3>1 · Script</h3>
+          <span className="muted" style={{ fontSize: 12 }}>{script.length} chars</span>
+        </div>
         <textarea value={script} onChange={(e) => setScript(e.target.value)} />
-        <ScriptFileInput
-          onText={(text) => setScript((prev) => (prev.trim() ? `${prev}\n${text}` : text))}
-        />
-        <div className="row" style={{ marginTop: 10 }}>
+        <ScriptFileInput onText={(t) => setScript((prev) => (prev.trim() ? `${prev}\n${t}` : t))} />
+        <div className="row" style={{ marginTop: 12 }}>
           <button className="secondary" onClick={saveScript} disabled={!dirty || savingScript}>
             {savingScript ? "Saving…" : dirty ? "Save script" : "Saved"}
           </button>
-          <span className="muted">{script.length} chars</span>
         </div>
       </div>
 
       <div className="card">
-        <h3 style={{ marginTop: 0 }}>2 · Voice &amp; 3 · Avatar</h3>
-        <div className="grid">
+        <h3>2 · Voice &amp; 3 · Avatar</h3>
+        <div className="grid" style={{ gridTemplateColumns: "repeat(auto-fill, minmax(240px, 1fr))" }}>
           <div>
             <label htmlFor="voice">Voice</label>
             <select id="voice" value={voiceId} onChange={(e) => setVoiceId(e.target.value)}>
               {voices.map((v) => (
-                <option key={v.id} value={v.id}>
-                  {v.label} ({v.status})
-                </option>
+                <option key={v.id} value={v.id}>{v.label} ({v.status})</option>
               ))}
             </select>
           </div>
@@ -109,9 +121,7 @@ export function ProjectWorkspace({
             <label htmlFor="avatar">Avatar</label>
             <select id="avatar" value={avatarId} onChange={(e) => setAvatarId(e.target.value)}>
               {avatars.map((a) => (
-                <option key={a.id} value={a.id}>
-                  {a.label} ({a.status})
-                </option>
+                <option key={a.id} value={a.id}>{a.label} ({a.status})</option>
               ))}
             </select>
           </div>
@@ -119,16 +129,11 @@ export function ProjectWorkspace({
             <label htmlFor="emotion">Emotion</label>
             <select id="emotion" value={emotion} onChange={(e) => setEmotion(e.target.value)}>
               {EMOTIONS.map((e) => (
-                <option key={e} value={e}>
-                  {e}
-                  {SUPPORTED_EMOTIONS.has(e) ? "" : " — experimental"}
-                </option>
+                <option key={e} value={e}>{e}{SUPPORTED_EMOTIONS.has(e) ? "" : " — experimental"}</option>
               ))}
             </select>
             {!SUPPORTED_EMOTIONS.has(emotion) ? (
-              <p className="muted" style={{ fontSize: 12 }}>
-                The mock engine can’t control this emotion — it will sound like Neutral.
-              </p>
+              <p className="field-hint">The mock engine can’t control this — it will sound Neutral.</p>
             ) : null}
           </div>
           <div>
@@ -139,21 +144,19 @@ export function ProjectWorkspace({
       </div>
 
       <div className="card">
-        <h3 style={{ marginTop: 0 }}>4 · Generate</h3>
-        {error ? <p style={{ color: "var(--danger)", fontSize: 13 }}>{error}</p> : null}
+        <h3>4 · Generate</h3>
+        {error ? <p className="form-error">{error}</p> : null}
         <button onClick={generate} disabled={starting}>
-          {starting ? "Starting…" : "Generate video"}
+          <Icon.play /> {starting ? "Starting…" : "Generate video"}
         </button>
-        <p className="muted" style={{ fontSize: 12 }}>
-          Output is 9:16, 1080×1920, solid green background. MOCK — finish in CapCut.
-        </p>
+        <p className="field-hint">9:16, 1080×1920, solid green background. Finish in CapCut.</p>
       </div>
 
       {activeJobId ? <JobProgress jobId={activeJobId} /> : null}
 
-      {pastJobIds.length > 0 ? (
+      {pastJobIds.filter((id) => id !== activeJobId).length > 0 ? (
         <div className="card">
-          <h3 style={{ marginTop: 0 }}>Past jobs</h3>
+          <h3>Past jobs</h3>
           {pastJobIds
             .filter((id) => id !== activeJobId)
             .map((id) => (

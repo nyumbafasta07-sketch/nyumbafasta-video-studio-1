@@ -120,6 +120,24 @@ Reason:   Founder must not depend on one GPU host (Colab). Editing `.env` +
 
 ---
 
+Decision: UI is a hand-built CSS design system (tokens in `globals.css`) +
+          inline SVG icons — no CSS framework, no component library, no icon
+          package.
+Reason:   Founder rejected the first plain UI and asked for the best version.
+          A design system in CSS custom properties (surfaces / text / accent /
+          shape / motion, dark-first with a light theme) gives a cohesive,
+          modern look (Linear/Vercel-style) with zero runtime deps, matching
+          brief §2.5 "simple over impressive / open over proprietary" and §2.2
+          "the client only handles input, control, download" (nothing heavy).
+          Rejected: Tailwind (build-time toolchain + huge class churn),
+          shadcn/Radix/MUI (dependency weight, bundle, lock-in for a tool this
+          small), an icon library (a dozen inline SVGs cover it). Added:
+          `ThemeToggle` (localStorage, no-flash script in `layout.tsx`),
+          `ui/feedback.ts` (dependency-free toast + confirm replacing
+          `alert()`/`confirm()`), responsive sidebar drawer.
+
+---
+
 Decision: Mock MP4 render uses the `ffmpeg-static` npm binary (no system ffmpeg).
 Reason:   The dev box has no system ffmpeg. `ffmpeg-static` ships a pinned
           binary via npm, keeping "npm install && npm run dev" self-contained.

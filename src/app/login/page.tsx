@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { Icon } from "@/components/Icons";
 
 export default function LoginPage() {
   const [password, setPassword] = useState("");
@@ -22,33 +23,44 @@ export default function LoginPage() {
       window.location.href = next;
     } else {
       const body = await res.json().catch(() => ({}));
-      setError(body.error ?? "login failed");
+      setError(body.error ?? "Login failed");
     }
   }
 
   return (
-    <div style={{ maxWidth: 360, margin: "12vh auto", padding: "0 20px" }}>
-      <h2>Video Studio</h2>
-      <p className="sub">Private tool. Enter the app password.</p>
-      <form onSubmit={submit} className="card">
-        <label htmlFor="pw">Password</label>
-        <input
-          id="pw"
-          type="password"
-          autoFocus
-          value={password}
-          onChange={(e) => setPassword(e.target.value)}
-        />
-        {error ? (
-          <p style={{ color: "var(--danger)", fontSize: 13, marginTop: 10 }}>{error}</p>
-        ) : null}
-        <button type="submit" disabled={busy || !password} style={{ marginTop: 16, width: "100%" }}>
-          {busy ? "Checking…" : "Enter"}
-        </button>
-      </form>
-      <p className="muted" style={{ fontSize: 12 }}>
-        No account system — one shared password (see <span className="mono">SETUP.md</span>).
-      </p>
+    <div className="auth">
+      <div className="box">
+        <div className="brand">
+          <span className="logo">
+            <Icon.film />
+          </span>
+          <div>
+            <b>Video Studio</b>
+            <span>private · single-user</span>
+          </div>
+        </div>
+
+        <form onSubmit={submit} className="card">
+          <label htmlFor="pw">Password</label>
+          <input
+            id="pw"
+            type="password"
+            autoFocus
+            autoComplete="current-password"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            placeholder="Enter the app password"
+          />
+          {error ? <p className="form-error">{error}</p> : null}
+          <button type="submit" disabled={busy || !password} className="block" style={{ marginTop: 16 }}>
+            {busy ? "Checking…" : "Enter"}
+          </button>
+        </form>
+
+        <p className="muted" style={{ fontSize: 12, textAlign: "center" }}>
+          One shared password — no accounts. See <span className="mono">SETUP.md</span>.
+        </p>
+      </div>
     </div>
   );
 }

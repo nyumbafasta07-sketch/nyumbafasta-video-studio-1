@@ -10,9 +10,7 @@ export default function TrainingVideosPage() {
   bootstrap();
   return (
     <Shell active="/training" title="Training · Videos">
-      <p>
-        <Link href="/training">← Training Studio</Link>
-      </p>
+      <p className="page-lead"><Link href="/training">← Training Studio</Link></p>
       <VideosPanel />
     </Shell>
   );

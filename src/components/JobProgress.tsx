@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { Icon } from "./Icons";
 
 interface StageView {
   key: string;
@@ -21,13 +22,12 @@ interface Payload {
 }
 
 const TERMINAL = new Set(["COMPLETED", "FAILED", "CANCELLED"]);
-
 const LABELS: Record<string, string> = {
   validate_script: "Validate script",
   snapshot_inputs: "Snapshot inputs",
-  generate_audio: "Generate voice (mock)",
-  generate_face: "Generate avatar (mock)",
-  lip_sync: "Lip-sync (mock)",
+  generate_audio: "Generate voice",
+  generate_face: "Generate avatar",
+  lip_sync: "Lip-sync",
   render_video: "Render green-screen MP4",
   validate_output: "Validate output",
   store_output: "Store output",
@@ -44,7 +44,7 @@ export function JobProgress({ jobId }: { jobId: string }) {
     setActing(true);
     await fetch(`/api/jobs/${jobId}/${kind}`, { method: "POST" }).catch(() => {});
     setActing(false);
-    setPollNonce((n) => n + 1); // restart polling (retry re-queues the job)
+    setPollNonce((n) => n + 1);
   }
 
   useEffect(() => {
@@ -56,9 +56,7 @@ export function JobProgress({ jobId }: { jobId: string }) {
         const payload: Payload = await res.json();
         if (!alive) return;
         setData(payload);
-        if (!TERMINAL.has(payload.job.state)) {
-          timer.current = setTimeout(tick, 1500);
-        }
+        if (!TERMINAL.has(payload.job.state)) timer.current = setTimeout(tick, 1500);
       } catch (e) {
         if (!alive) return;
         setErr(String(e));
@@ -72,44 +70,43 @@ export function JobProgress({ jobId }: { jobId: string }) {
     };
   }, [jobId, pollNonce]);
 
-  if (err && !data) return <p style={{ color: "var(--danger)" }}>Polling error: {err}</p>;
-  if (!data) return <p className="muted">Loading job…</p>;
+  if (err && !data) return <div className="card"><p className="form-error">Polling error: {err}</p></div>;
+  if (!data) return <div className="card"><div className="skeleton" style={{ height: 120 }} /></div>;
 
   const { job, stages, output } = data;
   const stateClass =
     job.state === "COMPLETED" ? "completed" : job.state === "FAILED" ? "failed" : "state";
+  const doneCount = stages.filter((s) => s.progress.status === "done").length;
 
   return (
     <div className="card">
-      <div className="row" style={{ justifyContent: "space-between" }}>
-        <div>
-          <span className={`badge ${stateClass}`}>{job.state}</span>{" "}
-          <span className="mono muted">{job.id}</span>
+      <div className="between">
+        <div className="row">
+          <span className={`badge ${stateClass}`}>{job.state}</span>
+          <span className="mono muted">{job.id.slice(0, 16)}…</span>
         </div>
-        <span className="muted">
-          {job.inputs.width}×{job.inputs.height} · {job.inputs.emotion} · bg {job.inputs.background}
+        <span className="muted" style={{ fontSize: 12 }}>
+          {job.inputs.width}×{job.inputs.height} · {job.inputs.emotion} · {doneCount}/{stages.length}
         </span>
       </div>
 
       <ul className="stage-list" style={{ marginTop: 14 }}>
         {stages.map((s) => (
           <li key={s.key}>
-            <span>
+            <span className="name">
               <span className={`dot ${s.progress.status}`} />
               {LABELS[s.key] ?? s.key}
             </span>
-            <span className="muted">
+            <span className="muted" style={{ fontSize: 12 }}>
               {s.progress.status}
-              {s.progress.attempt > 1 ? ` (try ${s.progress.attempt})` : ""}
+              {s.progress.attempt > 1 ? ` · try ${s.progress.attempt}` : ""}
               {s.progress.error ? ` — ${s.progress.error}` : ""}
             </span>
           </li>
         ))}
       </ul>
 
-      {job.state === "FAILED" && job.error ? (
-        <p style={{ color: "var(--danger)", fontSize: 13 }}>Failed: {job.error}</p>
-      ) : null}
+      {job.state === "FAILED" && job.error ? <p className="form-error">Failed: {job.error}</p> : null}
 
       <div className="row" style={{ marginTop: 12 }}>
         {!TERMINAL.has(job.state) ? (
@@ -117,9 +114,9 @@ export function JobProgress({ jobId }: { jobId: string }) {
             {acting ? "…" : "Cancel"}
           </button>
         ) : null}
-        {job.state === "FAILED" || job.state === "CANCELLED" ? (
+        {(job.state === "FAILED" || job.state === "CANCELLED") ? (
           <button className="secondary" disabled={acting} onClick={() => act("retry")}>
-            {acting ? "…" : "Retry"}
+            <Icon.refresh /> {acting ? "…" : "Retry"}
           </button>
         ) : null}
       </div>
@@ -127,13 +124,15 @@ export function JobProgress({ jobId }: { jobId: string }) {
       {output ? (
         <div style={{ marginTop: 16 }}>
           <video controls src={output.downloadUrl} />
-          <div className="row" style={{ marginTop: 10 }}>
-            <a className="btn" href={output.downloadUrl}>Download MP4</a>
-            <span className="muted">
+          <div className="between" style={{ marginTop: 10 }}>
+            <a className="btn" href={output.downloadUrl}>
+              <Icon.download /> Download MP4
+            </a>
+            <span className="muted" style={{ fontSize: 12 }}>
               {(output.bytes / 1024 / 1024).toFixed(2)} MB ·{" "}
               {String(output.meta.kind ?? "MOCK")} ·{" "}
-              {String(output.meta.provider ?? "")}/{String(output.meta.model ?? "")} ·{" "}
-              {output.meta.durationSeconds ? `${Number(output.meta.durationSeconds).toFixed(1)}s` : ""}
+              {String(output.meta.provider ?? "")}/{String(output.meta.model ?? "")}
+              {output.meta.durationSeconds ? ` · ${Number(output.meta.durationSeconds).toFixed(1)}s` : ""}
             </span>
           </div>
         </div>

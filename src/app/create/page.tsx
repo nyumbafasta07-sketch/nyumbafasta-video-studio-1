@@ -8,16 +8,14 @@ export const dynamic = "force-dynamic";
 export default function CreatePage() {
   bootstrap();
   return (
-    <Shell
-      active="/create"
-      title="Create Video"
-      subtitle="Step 1 of 4 — script. Steps 2 (voice), 3 (avatar) and 4 (generate) continue on the project page."
-    >
+    <Shell active="/create" title="Create Video" subtitle="Step 1 of 4 — the script. Voice, avatar and generate continue on the project page.">
       <div className="steps">
-        <span className="step active">1 · Script</span>
-        <span className="step">2 · Voice</span>
-        <span className="step">3 · Avatar</span>
-        <span className="step">4 · Generate</span>
+        {["Script", "Voice", "Avatar", "Generate"].map((s, i) => (
+          <span key={s} className={`step${i === 0 ? " active" : ""}`}>
+            <span className="n">{i + 1}</span>
+            {s}
+          </span>
+        ))}
       </div>
       <NewProjectForm />
     </Shell>
