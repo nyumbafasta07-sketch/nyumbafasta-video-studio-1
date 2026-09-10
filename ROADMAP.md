@@ -50,9 +50,11 @@ passes the Tanzania bar (§4).
       (brief §8.1)
 - [x] `worker/colab/ingest.py` + `ingest.ipynb` — §8.2 ingestion (audio →
       silence-split → Whisper transcribe → quality score + face crops)
+- [x] Fine-tune notebook — `worker/colab/finetune_piper.ipynb` (Piper: MIT,
+      offline, low VRAM; escalate to XTTS/F5 fine-tune if prosody too flat)
 - [ ] **Founder gathers authorized recordings** (20–40 min, varied topics) ← now
-- [ ] Run ingestion → clean `dataset/metadata.csv`
-- [ ] Fine-tune notebook (VITS/Piper on founder voice) + eval vs the 27 sentences
+- [ ] Run `ingest.ipynb` → clean `dataset/metadata.csv`
+- [ ] Run `finetune_piper.ipynb` → Founder Voice v1 → eval vs the 27 sentences
 - [ ] Integrate winner behind `VoiceProvider`; keep mock as fallback
 
 ## Phase 4 — Real Face / Avatar
@@ -69,7 +71,9 @@ same recordings.
 
 ## Phase 5 — Real Lip-Sync
 
-- [ ] `TANZANIA_LIPSYNC_BENCHMARK.md` — Swahili-phoneme-specific scoring
+- [x] `TANZANIA_LIPSYNC_BENCHMARK.md` — 22 phoneme-targeted Swahili lines + grid
+- [x] Phase 5 candidate research in `MODEL_EVALUATION.md` (Wav2Lip, LatentSync,
+      MuseTalk, LivePortrait)
 - [ ] Integrate behind `LipSyncProvider`, validated on Swahili phonemes
 
 ## Phase 6 — Quality improvement

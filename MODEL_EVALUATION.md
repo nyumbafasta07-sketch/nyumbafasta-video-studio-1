@@ -96,8 +96,18 @@ performance transfer) → a diffusion model only if those miss §4.
 
 ## Phase 5 — Lip-sync candidates
 
-_(to be filled in Phase 5 — must be validated on Swahili phonemes, see
-`TANZANIA_LIPSYNC_BENCHMARK.md`)_
+Judged with `TANZANIA_LIPSYNC_BENCHMARK.md` (Swahili phonemes, founder's face).
+
+| Candidate | Type | Licence (verify) | Why | Risk |
+|---|---|---|---|---|
+| **Wav2Lip / Wav2Lip-HD** | audio→lip region inpaint | research/non-commercial — **check** | fast, tiny, the standard baseline | English-tuned; blurry mouth; weak on Swahili open vowels; licence |
+| **LatentSync** (ByteDance) | diffusion audio→lip | check | sharp mouth detail, good temporal consistency | VRAM, slower |
+| **MuseTalk** | real-time-ish latent inpaint | check | fast + decent quality | mouth-region only, identity from source |
+| **Sonic / Hallo2 (lipsync mode)** | audio-driven whole portrait | check | motion + lips together | heavy |
+| **LivePortrait** (driving-video mode) | reenactment | MIT | best identity retention; use a real driving clip for mouth+expression | needs a driving performance, not just audio |
+
+Order: Wav2Lip baseline → LatentSync / MuseTalk → LivePortrait or a full
+audio-to-video model if those miss §4 on Swahili.
 
 ---
 
