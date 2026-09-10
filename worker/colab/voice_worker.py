@@ -11,7 +11,7 @@ Modes:
 Backends (--backend):
   mms    Meta MMS-TTS (swh). Real Swahili, single fixed speaker, NO cloning.
          Reliable. This is the pronunciation / accent BASELINE.
-  xtts   Coqui XTTS v2. Clones the founder's voice from a reference clip, but has
+  xtts   Coqui XTTS v2 (Colab install brittle; kept for local use).
          NO Swahili — you pass --lang (default en) and use it only to judge
          "does this sound like me?" (timbre), not Swahili correctness.
 
@@ -75,6 +75,7 @@ def ensure_wav(path: str, start: float = 0.0, dur: float = 25.0, sr: int = 22050
 
 _xtts = None
 _mms = None
+_cb = None
 
 
 def _load_xtts():
@@ -130,6 +131,29 @@ def synth_xtts(text: str, ref_wav: str, out_path: str, lang: str = "en") -> str:
     return out_path
 
 
+def _load_chatterbox():
+    global _cb
+    if _cb is None:
+        from chatterbox.tts import ChatterboxTTS
+
+        device = "cpu" if os.environ.get("FORCE_CPU") == "1" else "cuda"
+        _cb = ChatterboxTTS.from_pretrained(device=device)
+    return _cb
+
+
+def synth_chatterbox(text: str, ref_wav: str, out_path: str, lang: str = "en") -> str:
+    """Resemble AI Chatterbox — MIT, English zero-shot voice clone. Timbre check
+    only (no Swahili). More install-robust on Colab than coqui-tts/XTTS."""
+    if not ref_wav or not os.path.exists(ref_wav):
+        raise ValueError("chatterbox needs --ref pointing at a real audio/video file")
+    import torchaudio
+
+    model = _load_chatterbox()
+    wav = model.generate(text, audio_prompt_path=ref_wav)
+    torchaudio.save(out_path, wav.detach().cpu(), model.sr)
+    return out_path
+
+
 def synth_mms(text: str, ref_wav: str, out_path: str, lang: str = "sw") -> str:
     import torch
 
@@ -147,7 +171,10 @@ def synth_mms(text: str, ref_wav: str, out_path: str, lang: str = "sw") -> str:
     return out_path
 
 
-BACKENDS = {"xtts": synth_xtts, "mms": synth_mms}
+BACKENDS = {"xtts": synth_xtts, "mms": synth_mms, "chatterbox": synth_chatterbox}
+
+# backends that clone the founder's voice (English only) -> prepend the ID lines
+CLONE_BACKENDS = {"xtts", "chatterbox"}
 
 
 # --------------------------------------------------------------------------- #
@@ -156,11 +183,11 @@ BACKENDS = {"xtts": synth_xtts, "mms": synth_mms}
 
 def run_benchmark(backend: str, ref: str, out_dir: str, lang: str) -> None:
     ref_wav = ensure_wav(ref) if ref else ""
-    if backend == "xtts" and ref_wav:
+    if backend in CLONE_BACKENDS and ref_wav:
         print(f"reference converted -> {ref_wav}")
 
     items = list(SENTENCES)
-    if backend == "xtts":
+    if backend in CLONE_BACKENDS:
         items = XTTS_IDENTITY + items
 
     fn = BACKENDS[backend]
@@ -293,7 +320,7 @@ def run_serve(backend: str, ref: str, port: int, lang: str) -> None:
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--mode", choices=["benchmark", "serve"], required=True)
-    ap.add_argument("--backend", choices=["xtts", "mms"], required=True)
+    ap.add_argument("--backend", choices=["xtts", "mms", "chatterbox"], required=True)
     ap.add_argument("--ref", default="", help="founder reference clip (wav or video)")
     ap.add_argument("--out", default="./out")
     ap.add_argument("--port", type=int, default=8800)
