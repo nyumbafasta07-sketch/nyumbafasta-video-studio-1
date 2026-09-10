@@ -15,8 +15,20 @@ Base URL: `https://colab.research.google.com/github/nyumbafasta07-sketch/nyumbaf
 
 ## Getting media in without Google Drive
 
-`ingest.ipynb` cell 4a uploads straight from your computer. Colab's uploader is
-slow for large files, so shrink them first on your own machine:
+The `files.upload()` widget is unreliable (it often hangs without opening), so
+the notebooks don't use it. Instead:
+
+- **File panel** (main way): click the **folder icon** on the left sidebar,
+  **drag your files into the list**, wait for the upload circles to finish, then
+  run the "get your files" cell — it moves them into place. Re-drag + re-run if
+  the runtime disconnects.
+- **`gdown` from a Drive share link** (`ingest.ipynb` cell 4a-alt): server-side,
+  fast, no mount. Right-click the file in Drive → Share → Anyone with the link.
+- **`wget` from a private/expiring direct link** (`ingest.ipynb` cell 4c;
+  `finetune_piper.ipynb` cell 3).
+
+Colab's file-panel upload is still slow for big files, so shrink them first on
+your own machine:
 
 ```
 # 480p + small audio — plenty for ingestion, ~10x smaller
