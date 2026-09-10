@@ -2,6 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { Shell } from "@/components/Shell";
 import { ProjectWorkspace } from "@/components/ProjectWorkspace";
+import { DeleteProjectButton } from "@/components/DeleteProjectButton";
 import { bootstrap } from "@/lib/bootstrap";
 import { config } from "@/lib/config";
 import { getProject, listAvatars, listJobsForProject, listVoices } from "@/lib/repo";
@@ -20,9 +21,10 @@ export default function ProjectDetail({ params }: { params: { id: string } }) {
 
   return (
     <Shell active="/projects" title={project.name} subtitle={`Project ${project.id}`}>
-      <p>
+      <div className="row" style={{ justifyContent: "space-between" }}>
         <Link href="/projects">← all projects</Link>
-      </p>
+        <DeleteProjectButton projectId={project.id} name={project.name} redirectTo="/projects" />
+      </div>
       <ProjectWorkspace
         projectId={project.id}
         initialScript={project.script_text}

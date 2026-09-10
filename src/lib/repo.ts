@@ -111,6 +111,11 @@ export function updateProjectScript(id: string, scriptText: string): void {
     .run(scriptText, nowIso(), id);
 }
 
+/** Cascades to generation_jobs + assets via FK. Storage cleanup is the caller's. */
+export function deleteProject(id: string): void {
+  getDb().prepare(`DELETE FROM projects WHERE id = ?`).run(id);
+}
+
 /* ---------- jobs ---------- */
 
 function rowToJob(r: Record<string, unknown>): Job {
@@ -157,6 +162,14 @@ export function listJobsForProject(projectId: string): Job[] {
         `SELECT * FROM generation_jobs WHERE project_id = ? ORDER BY created_at DESC`,
       )
       .all(projectId) as Record<string, unknown>[]
+  ).map(rowToJob);
+}
+
+export function listRecentJobs(limit = 10): Job[] {
+  return (
+    getDb()
+      .prepare(`SELECT * FROM generation_jobs ORDER BY created_at DESC LIMIT ?`)
+      .all(limit) as Record<string, unknown>[]
   ).map(rowToJob);
 }
 

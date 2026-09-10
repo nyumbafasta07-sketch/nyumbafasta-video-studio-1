@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { Shell } from "@/components/Shell";
 import { NewProjectForm } from "@/components/NewProjectForm";
+import { DeleteProjectButton } from "@/components/DeleteProjectButton";
 import { bootstrap } from "@/lib/bootstrap";
 import { listProjects } from "@/lib/repo";
 
@@ -27,6 +28,7 @@ export default function ProjectsPage() {
                 <th>Script</th>
                 <th>Created</th>
                 <th></th>
+                <th></th>
               </tr>
             </thead>
             <tbody>
@@ -36,6 +38,7 @@ export default function ProjectsPage() {
                   <td className="muted">{p.script_text ? `${p.script_text.length} chars` : "—"}</td>
                   <td className="muted">{new Date(p.created_at).toLocaleString()}</td>
                   <td><Link href={`/projects/${p.id}`}>open</Link></td>
+                  <td><DeleteProjectButton compact projectId={p.id} name={p.name} /></td>
                 </tr>
               ))}
             </tbody>

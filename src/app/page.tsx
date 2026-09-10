@@ -2,7 +2,7 @@ import Link from "next/link";
 import { Shell } from "@/components/Shell";
 import { bootstrap } from "@/lib/bootstrap";
 import { config } from "@/lib/config";
-import { listProjects, listJobsByStates } from "@/lib/repo";
+import { getProject, listProjects, listJobsByStates, listRecentJobs } from "@/lib/repo";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -18,6 +18,7 @@ export default function Dashboard() {
     "LIP_SYNC",
     "RENDERING",
   ]);
+  const recentJobs = listRecentJobs(8);
 
   return (
     <Shell active="/" title="Dashboard" subtitle="Phase 2 — mock pipeline. Every output is fake by design.">
@@ -72,6 +73,46 @@ export default function Dashboard() {
                   <td><Link href={`/projects/${p.id}`}>open</Link></td>
                 </tr>
               ))}
+            </tbody>
+          </table>
+        )}
+      </div>
+
+      <div className="card">
+        <h3 style={{ marginTop: 0 }}>Recent jobs</h3>
+        {recentJobs.length === 0 ? (
+          <p className="muted">No jobs yet.</p>
+        ) : (
+          <table>
+            <thead>
+              <tr>
+                <th>State</th>
+                <th>Project</th>
+                <th>Stage</th>
+                <th>Created</th>
+              </tr>
+            </thead>
+            <tbody>
+              {recentJobs.map((j) => {
+                const cls =
+                  j.state === "COMPLETED"
+                    ? "completed"
+                    : j.state === "FAILED"
+                      ? "failed"
+                      : "state";
+                return (
+                  <tr key={j.id}>
+                    <td><span className={`badge ${cls}`}>{j.state}</span></td>
+                    <td>
+                      <Link href={`/projects/${j.project_id}`}>
+                        {getProject(j.project_id)?.name ?? j.project_id}
+                      </Link>
+                    </td>
+                    <td className="muted">{j.stage || "—"}</td>
+                    <td className="muted">{new Date(j.created_at).toLocaleString()}</td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         )}

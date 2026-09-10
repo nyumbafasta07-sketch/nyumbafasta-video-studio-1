@@ -7,6 +7,10 @@ import {
   updateProjectScript,
   listVoices,
   listAvatars,
+  createJob,
+  deleteProject,
+  listJobsForProject,
+  listRecentJobs,
 } from "@/lib/repo";
 
 let env: TestEnv;
@@ -27,6 +31,19 @@ describe("projects repo", () => {
     const p = createProject("X");
     updateProjectScript(p.id, "Karibu tena.");
     expect(getProject(p.id)?.script_text).toBe("Karibu tena.");
+  });
+
+  it("deleteProject cascades to its jobs", () => {
+    const p = createProject("Doomed", "Neno.");
+    createJob(p.id, {
+      voiceId: "v", emotion: "Neutral", avatarId: "a",
+      background: "#00b140", width: 320, height: 568,
+    });
+    expect(listJobsForProject(p.id)).toHaveLength(1);
+    deleteProject(p.id);
+    expect(getProject(p.id)).toBeNull();
+    expect(listJobsForProject(p.id)).toHaveLength(0);
+    expect(listRecentJobs(10)).toHaveLength(0);
   });
 
   it("seeds one default mock voice and avatar", () => {
