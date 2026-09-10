@@ -1,0 +1,6 @@
+# Phase 2 mock worker: standard library only, nothing to install.
+# ffmpeg must be on PATH (or set FFMPEG=...). On the Next.js side the app uses
+# ffmpeg-static; a standalone worker box needs its own ffmpeg.
+#
+# Phase 3+ will add real deps here (torch, TTS, face/lip-sync libs) — pin exact
+# versions and record CUDA/VRAM in ../MODEL_DEPLOYMENT.md.

@@ -1,0 +1,33 @@
+{
+  "_comment": "Machine-readable copy of TANZANIA_VOICE_BENCHMARK.md test sentences. Keep the two in sync. Used by worker/colab/voice_worker.py --mode benchmark.",
+  "language": "sw-TZ",
+  "sentences": [
+    { "id": "A1", "category": "normal", "text": "Habari za leo? Mimi niko poa tu, nashukuru Mungu." },
+    { "id": "A2", "category": "normal", "text": "Leo tutaangalia jinsi ya kutumia hii app kwa haraka na bila usumbufu." },
+    { "id": "A3", "category": "normal", "text": "Karibu tena kwenye channel yangu, nafurahi umerudi." },
+    { "id": "B4", "category": "excited", "text": "Jamani, hii habari ni kubwa sana — lazima muione video hii mpaka mwisho!" },
+    { "id": "B5", "category": "excited", "text": "Nimefurahi kweli kuwaonyesha kitu kilichobadilisha biashara yangu kabisa!" },
+    { "id": "B6", "category": "excited", "text": "Hii ndio siku tuliyokuwa tunaisubiri, na sasa imefika!" },
+    { "id": "C7", "category": "professional", "text": "Katika taarifa ya leo, tutajadili matokeo ya robo mwaka na mpango wa mbele." },
+    { "id": "C8", "category": "professional", "text": "Tunawashukuru wateja wetu wote kwa kutuamini kwa mwaka mzima huu." },
+    { "id": "C9", "category": "professional", "text": "Timu yetu imefanya kazi kwa bidii kuhakikisha huduma inaboreka." },
+    { "id": "D10", "category": "code-switch", "text": "Ukishafungua dashboard, bonyeza kitufe cha login halafu weka password yako." },
+    { "id": "D11", "category": "code-switch", "text": "Content yako lazima iwe na thumbnail nzuri ili watu waweze ku-click." },
+    { "id": "D12", "category": "code-switch", "text": "Nili-post reel moja TikTok jana, ika-hit views elfu hamsini ndani ya masaa manne." },
+    { "id": "D13", "category": "code-switch", "text": "Tumia hashtag sahihi, halafu uangalie analytics baada ya siku mbili." },
+    { "id": "E14", "category": "storytelling", "text": "Siku moja, nikiwa bado nauza nyanya sokoni, sikujua kama maisha yangu yangebadilika." },
+    { "id": "E15", "category": "storytelling", "text": "Nakumbuka usiku ule, mvua ikinyesha, nikiandika mpango wangu wa kwanza wa biashara." },
+    { "id": "E16", "category": "storytelling", "text": "Nilianza na mtaji wa shilingi elfu kumi tu, na watu wengi walinicheka." },
+    { "id": "F17", "category": "sales-cta", "text": "Usikose nafasi hii — bonyeza link iliyoko chini na ujiunge leo kabla haijaisha." },
+    { "id": "F18", "category": "sales-cta", "text": "Bei ya kawaida ni laki mbili, lakini leo tu utapata kwa laki moja na nusu." },
+    { "id": "F19", "category": "sales-cta", "text": "Wateja wa kwanza hamsini watapata bonus ya ziada, kwa hiyo usichelewe." },
+    { "id": "G20", "category": "educational", "text": "Riba rahisi hukokotolewa kwa kuzidisha kiasi cha msingi, kiwango cha riba, na muda." },
+    { "id": "G21", "category": "educational", "text": "Kuna aina tatu za bajeti: ya kila siku, ya kila mwezi, na ya mwaka mzima." },
+    { "id": "G22", "category": "educational", "text": "Akiba ni pesa unayoweka pembeni kabla hujaanza kutumia mapato yako." },
+    { "id": "H23", "category": "pronunciation", "text": "Ng'ombe wangu wamekwenda kunywa maji mtoni asubuhi na mapema." },
+    { "id": "H24", "category": "pronunciation", "text": "Mzee Mng'ong'o alinunua ng'ombe wawili na mbuzi wenye nguvu." },
+    { "id": "H25", "category": "pronunciation", "text": "Nyanya, mchicha, na mboga za majani ni muhimu kwa afya ya mwili." },
+    { "id": "H26", "category": "pronunciation", "text": "Ndugu zangu, mnaokaa mbali, karibuni nyumbani kwa sherehe." },
+    { "id": "H27", "category": "pronunciation", "text": "Mwalimu alimwambia mwanafunzi aandike insha kuhusu mvua na ukame." }
+  ]
+}
