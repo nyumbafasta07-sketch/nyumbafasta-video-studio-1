@@ -109,6 +109,7 @@ export class WorkerTrainingProvider implements TrainingProvider {
       speechSeconds: Number(r.speechSeconds ?? 0),
       frameCount: Number(r.frameCount ?? 0),
       faceOkRatio: Number(r.faceOkRatio ?? 0),
+      workerRef: r.workerRef ? String(r.workerRef) : undefined,
     };
   }
 
@@ -125,6 +126,7 @@ export class WorkerTrainingProvider implements TrainingProvider {
         profile: input.profile,
         level: input.level,
         datasetId: input.dataset.id,
+        datasetRef: input.dataset.worker_ref,
         datasetStats: {
           clipCount: input.dataset.clip_count,
           speechSeconds: input.dataset.speech_seconds,
@@ -142,6 +144,7 @@ export class WorkerTrainingProvider implements TrainingProvider {
       gpuUsed: String(r.gpuUsed ?? "worker"),
       license: String(r.license ?? ""),
       kind: (r.kind as TrainResult["kind"]) ?? "EXPERIMENTAL",
+      modelRef: r.modelRef ? String(r.modelRef) : undefined,
     };
   }
 
@@ -151,12 +154,14 @@ export class WorkerTrainingProvider implements TrainingProvider {
     versionNum: number;
     testKey: string;
     scriptText: string;
+    modelRef?: string;
   }): Promise<EvalResult> {
     const body = await run("evaluate", {
       profile: input.profile,
       versionId: input.versionId,
       testKey: input.testKey,
       scriptText: input.scriptText,
+      modelRef: input.modelRef ?? "",
     });
     const r = body.result ?? {};
     const isFace = input.profile === "face_identity" || input.profile === "face_performance";

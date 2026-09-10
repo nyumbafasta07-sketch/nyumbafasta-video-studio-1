@@ -26,6 +26,7 @@ export async function POST() {
     speechSeconds: stats.speechSeconds,
     frameCount: stats.frameCount,
     faceOkRatio: stats.faceOkRatio,
+    workerRef: stats.workerRef,
   });
   return NextResponse.json({ dataset }, { status: 201 });
 }

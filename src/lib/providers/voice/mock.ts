@@ -5,6 +5,7 @@
  */
 import { getStorage, projectPaths } from "../../storage";
 import { getGpu } from "../gpu";
+import { productionVersion } from "../../training/repo";
 import type { VoiceProvider, VoiceResult } from "../types";
 
 export class MockVoiceProvider implements VoiceProvider {
@@ -18,11 +19,17 @@ export class MockVoiceProvider implements VoiceProvider {
     outDir: string;
   }): Promise<VoiceResult> {
     const gpu = getGpu();
+    // when running against a real worker, use the founder's PRODUCTION voice
+    // model if one has been trained + promoted (Training Studio, §8.5)
+    let modelRef = "";
+    if (gpu.name !== "local-mock") {
+      modelRef = String(productionVersion("voice")?.config?.modelRef ?? "");
+    }
     const artifact = await gpu.execute({
       type: "voice",
       projectId: input.projectId,
       jobId: "",
-      payload: { text: input.text, voiceId: input.voiceId, emotion: input.emotion },
+      payload: { text: input.text, voiceId: input.voiceId, emotion: input.emotion, modelRef },
     });
 
     const storage = getStorage();
