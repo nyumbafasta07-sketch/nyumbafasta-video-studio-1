@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { ScriptFileInput } from "./ScriptFileInput";
 
 export function NewProjectForm() {
   const router = useRouter();
@@ -39,6 +40,9 @@ export function NewProjectForm() {
         value={scriptText}
         onChange={(e) => setScriptText(e.target.value)}
         placeholder="Andika script yako ya Kiswahili hapa…"
+      />
+      <ScriptFileInput
+        onText={(text) => setScriptText((prev) => (prev.trim() ? `${prev}\n${text}` : text))}
       />
       {error ? <p style={{ color: "var(--danger)", fontSize: 13 }}>{error}</p> : null}
       <button type="submit" disabled={busy || !name.trim()} style={{ marginTop: 14 }}>

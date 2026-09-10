@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { JobProgress } from "./JobProgress";
+import { ScriptFileInput } from "./ScriptFileInput";
 
 interface Opt {
   id: string;
@@ -80,6 +81,9 @@ export function ProjectWorkspace({
       <div className="card">
         <h3 style={{ marginTop: 0 }}>1 · Script</h3>
         <textarea value={script} onChange={(e) => setScript(e.target.value)} />
+        <ScriptFileInput
+          onText={(text) => setScript((prev) => (prev.trim() ? `${prev}\n${text}` : text))}
+        />
         <div className="row" style={{ marginTop: 10 }}>
           <button className="secondary" onClick={saveScript} disabled={!dirty || savingScript}>
             {savingScript ? "Saving…" : dirty ? "Save script" : "Saved"}

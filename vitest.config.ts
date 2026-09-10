@@ -13,6 +13,7 @@ export default defineConfig({
     hookTimeout: 30000,
     testTimeout: 60000,
     pool: "forks",
+    retry: 1, // the end-to-end pipeline test shells out to ffmpeg; tolerate a transient
     env: {
       SCRIPT_PROVIDER: "mock",
       VOICE_PROVIDER: "mock",

@@ -36,7 +36,16 @@ const LABELS: Record<string, string> = {
 export function JobProgress({ jobId }: { jobId: string }) {
   const [data, setData] = useState<Payload | null>(null);
   const [err, setErr] = useState("");
+  const [acting, setActing] = useState(false);
+  const [pollNonce, setPollNonce] = useState(0);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  async function act(kind: "cancel" | "retry") {
+    setActing(true);
+    await fetch(`/api/jobs/${jobId}/${kind}`, { method: "POST" }).catch(() => {});
+    setActing(false);
+    setPollNonce((n) => n + 1); // restart polling (retry re-queues the job)
+  }
 
   useEffect(() => {
     let alive = true;
@@ -61,7 +70,7 @@ export function JobProgress({ jobId }: { jobId: string }) {
       alive = false;
       if (timer.current) clearTimeout(timer.current);
     };
-  }, [jobId]);
+  }, [jobId, pollNonce]);
 
   if (err && !data) return <p style={{ color: "var(--danger)" }}>Polling error: {err}</p>;
   if (!data) return <p className="muted">Loading job…</p>;
@@ -101,6 +110,19 @@ export function JobProgress({ jobId }: { jobId: string }) {
       {job.state === "FAILED" && job.error ? (
         <p style={{ color: "var(--danger)", fontSize: 13 }}>Failed: {job.error}</p>
       ) : null}
+
+      <div className="row" style={{ marginTop: 12 }}>
+        {!TERMINAL.has(job.state) ? (
+          <button className="secondary" disabled={acting} onClick={() => act("cancel")}>
+            {acting ? "…" : "Cancel"}
+          </button>
+        ) : null}
+        {job.state === "FAILED" || job.state === "CANCELLED" ? (
+          <button className="secondary" disabled={acting} onClick={() => act("retry")}>
+            {acting ? "…" : "Retry"}
+          </button>
+        ) : null}
+      </div>
 
       {output ? (
         <div style={{ marginTop: 16 }}>

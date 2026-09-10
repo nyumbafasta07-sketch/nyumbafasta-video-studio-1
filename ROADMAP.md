@@ -17,7 +17,7 @@ next until the current one runs cleanly end-to-end and is tested.
 
 Success criterion **met**: script in -> mock voice -> mock avatar -> mock
 lip-sync -> green screen -> MP4 out, fully working locally, zero GPU.
-`npm test` 29/29 · `next build` compiles · live curl smoke verified.
+`npm test` 33/33 · `next build` compiles · live curl smoke verified.
 
 - [x] Local password gate (middleware + signed cookie, no auth lib)
 - [x] SQLite schema + repo layer (7 tables, no `users`)
@@ -27,10 +27,14 @@ lip-sync -> green screen -> MP4 out, fully working locally, zero GPU.
 - [x] 8-stage orchestrator with per-stage retry + job state machine
 - [x] `ffmpeg-static` MP4 render (1080x1920, 9:16, green screen)
 - [x] UI: Dashboard, Projects, Create Video (4 steps), job progress, download
-- [x] Installable PWA shell (manifest + service worker)
+- [x] Script step: `.txt` / `.md` / `.docx` upload (`/api/script/extract`, mammoth)
+- [x] Job lifecycle: Cancel (any running stage) + Retry (FAILED/CANCELLED, resumes)
+- [x] Installable PWA shell — manifest, service worker, real 192/512 icons
 - [x] Python worker skeleton (`worker/`) — contract reference, not required
-- [x] Tests: auth, projects, jobs, provider interface, pipeline, storage
+- [x] Tests: auth, authz, projects, jobs, job-actions, providers, pipeline, storage
 - [x] Founder confirmed SQLite (not Supabase) — `DECISIONS.md`, 2026-09-10
+
+Phase 2 is feature-complete for the brief's §5 / §7 / §12 scope.
 
 ## Phase 3 — Real Voice  ← CURRENT
 
