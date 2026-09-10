@@ -4,13 +4,15 @@ export type Profile =
   | "voice"
   | "speaking_style"
   | "face_identity"
-  | "face_performance";
+  | "face_performance"
+  | "lipsync";
 
 export const PROFILES: { key: Profile; label: string; level: number; note: string }[] = [
   { key: "voice", label: "Voice", level: 1, note: "pitch, accent, pronunciation, rhythm, breathing — Tanzanian Swahili" },
+  { key: "face_identity", label: "Face Identity", level: 2, note: "structure, skin, eyes, mouth, nose, hair — from your video, consistent, NO cartoon / no beautification" },
   { key: "speaking_style", label: "Speaking Style", level: 4, note: "sentence length, pace, pauses, emphasis, intro/CTA patterns" },
-  { key: "face_identity", label: "Face Identity", level: 2, note: "structure, skin, eyes, mouth, nose, hair — consistent, no beautification" },
-  { key: "face_performance", label: "Face Performance", level: 5, note: "blinking, brows, head/eye motion, micro-expressions, timing" },
+  { key: "face_performance", label: "Face Performance", level: 5, note: "blinking, brows, head/eye motion, micro-expressions, timing — from a real driving clip" },
+  { key: "lipsync", label: "Lip-Sync", level: 5, note: "mouth shapes matched to Swahili phonemes on your face" },
 ];
 
 /** L1..L6 progressive levels (§8.4). */

@@ -141,6 +141,7 @@ def do_build_dataset(payload: dict, _set_stage=None):
             rows.append(f"{cid}|{text}")
             speech += _wav_seconds(dst)
     (ddir / "metadata.csv").write_text("\n".join(rows) + "\n", encoding="utf-8")
+    (ddir / "videos.json").write_text(json.dumps(refs))  # source refs for face/lipsync training
     return {"result": {"clipCount": len(rows), "speechSeconds": round(speech),
                        "frameCount": 0, "faceOkRatio": 0, "workerRef": dref}}, None, None
 
@@ -157,10 +158,19 @@ def _wav_seconds(p: pathlib.Path) -> float:
 #  train  (Piper fine-tune, voice only)                                      #
 # --------------------------------------------------------------------------- #
 
+FACE_MODEL = os.environ.get("FACE_MODEL", "sadtalker")  # sadtalker | liveportrait
+SADTALKER_DIR = os.environ.get("SADTALKER_DIR", "/content/SadTalker")
+LIVEPORTRAIT_DIR = os.environ.get("LIVEPORTRAIT_DIR", "/content/LivePortrait")
+
+
 def do_train(payload: dict, set_stage=None):
-    if payload.get("profile") != "voice":
-        raise ValueError(f"gpu_worker only trains 'voice'; got {payload.get('profile')!r} "
-                         "(face / speaking_style / face_performance are Phase 4-6)")
+    profile = payload.get("profile")
+    if profile in ("face_identity", "face_performance", "lipsync"):
+        return _train_face(payload, set_stage)
+    if profile == "speaking_style":
+        raise ValueError("speaking_style training not implemented in gpu_worker (Phase 6)")
+    if profile != "voice":
+        raise ValueError(f"unknown profile {profile!r}")
     dref = str(payload.get("datasetRef") or "")
     ddir = WORK / "datasets" / dref
     if not (ddir / "metadata.csv").exists():
@@ -222,6 +232,142 @@ def _gpu_name() -> str:
 
 
 # --------------------------------------------------------------------------- #
+#  face_identity / face_performance / lipsync training                        #
+#  These do NOT fine-tune a network — they build a FACE PROFILE from your     #
+#  real video (best reference frame + a driving clip) that the animation      #
+#  model (SadTalker / LivePortrait) uses at generation time. Realism depends  #
+#  on that model + your video quality + the GPU (brief §4 / §8.3).            #
+# --------------------------------------------------------------------------- #
+
+def _train_face(payload: dict, set_stage=None):
+    import cv2  # type: ignore
+    import numpy as np  # noqa
+    import mediapipe as mp  # type: ignore
+
+    profile = payload["profile"]
+    dref = str(payload.get("datasetRef") or "")
+    ddir = WORK / "datasets" / dref
+    vids_json = ddir / "videos.json"
+    if not vids_json.exists():
+        raise ValueError("dataset has no source videos on this worker — rebuild it here first")
+    refs = json.loads(vids_json.read_text())
+
+    model_ref = f"{profile}-{dref[:8]}-{int(time.time())}"
+    fdir = WORK / "faces" / model_ref
+    (fdir / "alts").mkdir(parents=True, exist_ok=True)
+
+    if set_stage:
+        set_stage("extracting_frames")
+    det = mp.solutions.face_detection.FaceDetection(model_selection=1, min_detection_confidence=0.6)
+    best = []  # (score, frame_bgr, bbox)
+    driving_src = None
+    for r in refs:
+        srcs = list((WORK / "videos" / r).glob("src.*"))
+        if not srcs:
+            continue
+        driving_src = driving_src or srcs[0]
+        cap = cv2.VideoCapture(str(srcs[0]))
+        total = int(cap.get(cv2.CAP_PROP_FRAME_COUNT)) or 0
+        for k in range(24):
+            cap.set(cv2.CAP_PROP_POS_FRAMES, int(total * (k + 0.5) / 24))
+            ok, frame = cap.read()
+            if not ok:
+                continue
+            h, w = frame.shape[:2]
+            res = det.process(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
+            if not res.detections:
+                continue
+            b = res.detections[0].location_data.relative_bounding_box
+            if b.width < 0.12 or b.height < 0.12:
+                continue
+            # front-ish (face centred) + sharp
+            centred = 1 - min(1, abs((b.xmin + b.width / 2) - 0.5) * 4)
+            x, y = max(0, int(b.xmin * w)), max(0, int(b.ymin * h))
+            crop = frame[y:y + int(b.height * h), x:x + int(b.width * w)]
+            if crop.size == 0:
+                continue
+            sharp = cv2.Laplacian(cv2.cvtColor(crop, cv2.COLOR_BGR2GRAY), cv2.CV_64F).var()
+            best.append((centred * 2 + min(sharp, 400) / 100, frame, (x, y, crop.shape[1], crop.shape[0])))
+        cap.release()
+
+    if not best:
+        raise ValueError("no clear, front-facing face found in the training video — "
+                         "record closer / better lit, mark it, rebuild the dataset")
+    best.sort(key=lambda t: t[0], reverse=True)
+
+    if set_stage:
+        set_stage("building_profile")
+    # full-frame reference (SadTalker/LivePortrait want a head-and-shoulders image)
+    cv2.imwrite(str(fdir / "reference.png"), best[0][1])
+    for i, (_, fr, _) in enumerate(best[1:5]):
+        cv2.imwrite(str(fdir / "alts" / f"{i}.png"), fr)
+
+    # identity-consistency proxy: how alike the top faces are (embedding-free: hist corr)
+    def _hist(fr, box):
+        x, y, w0, h0 = box
+        c = cv2.cvtColor(fr[y:y + h0, x:x + w0], cv2.COLOR_BGR2HSV)
+        return cv2.calcHist([c], [0, 1], None, [30, 32], [0, 180, 0, 256])
+    h0 = _hist(best[0][1], best[0][2])
+    sims = [cv2.compareHist(h0, _hist(fr, bx), cv2.HISTCMP_CORREL) for _, fr, bx in best[1:6]]
+    consistency = round(max(0.0, sum(sims) / max(1, len(sims))), 3)
+
+    meta = {"profile": profile, "model_ref": model_ref, "face_model": FACE_MODEL,
+            "reference": str(fdir / "reference.png"), "frames_scored": len(best),
+            "identity_consistency": consistency}
+
+    if profile in ("face_performance", "lipsync") and driving_src:
+        if set_stage:
+            set_stage("extracting_driving_clip")
+        drv = fdir / "driving.mp4"
+        ff = os.environ.get("FFMPEG", "ffmpeg")
+        # a short natural talking segment for LivePortrait / performance transfer
+        subprocess.run([ff, "-hide_banner", "-y", "-ss", "3", "-t", "6", "-i", str(driving_src),
+                        "-an", "-vf", "scale=512:-2,fps=25", str(drv)], check=True, capture_output=True)
+        meta["driving_clip"] = str(drv)
+
+    (fdir / "meta.json").write_text(json.dumps(meta))
+
+    proxy = round(2 + consistency * 6 + min(1.0, len(best) / 20), 1)
+    return {"result": {"baseModel": FACE_MODEL, "modelRef": model_ref,
+                       "evalScore": max(1.0, min(9.0, proxy)),
+                       "evalBreakdown": {"identity_consistency": round(consistency * 10, 1),
+                                         "frames_scored": min(10, len(best) / 2)},
+                       "gpuUsed": _gpu_name(),
+                       "license": "SadTalker Apache-2.0 / LivePortrait MIT",
+                       "kind": "EXPERIMENTAL"}}, None, None
+
+
+def _talking_head(reference_png: pathlib.Path, audio_wav: pathlib.Path,
+                  driving_mp4: pathlib.Path | None = None) -> bytes:
+    """Animate `reference_png` to `audio_wav`. SadTalker (audio-driven) by default."""
+    out_dir = WORK / "tmp" / uuid.uuid4().hex
+    out_dir.mkdir(parents=True, exist_ok=True)
+    if FACE_MODEL == "liveportrait" and driving_mp4 and driving_mp4.exists():
+        subprocess.run(["python", f"{LIVEPORTRAIT_DIR}/inference.py",
+                        "-s", str(reference_png), "-d", str(driving_mp4),
+                        "-o", str(out_dir)], check=True, capture_output=True, cwd=LIVEPORTRAIT_DIR)
+        mp4s = sorted(out_dir.rglob("*.mp4"))
+        vid = mp4s[-1]
+        # mux the audio in (LivePortrait is video-driven, no audio)
+        final = out_dir / "final.mp4"
+        subprocess.run([os.environ.get("FFMPEG", "ffmpeg"), "-y", "-i", str(vid),
+                        "-i", str(audio_wav), "-c:v", "copy", "-c:a", "aac",
+                        "-shortest", str(final)], check=True, capture_output=True)
+        return final.read_bytes()
+    # SadTalker
+    subprocess.run(["python", f"{SADTALKER_DIR}/inference.py",
+                    "--source_image", str(reference_png),
+                    "--driven_audio", str(audio_wav),
+                    "--result_dir", str(out_dir),
+                    "--still", "--preprocess", "full", "--enhancer", "gfpgan"],
+                   check=True, capture_output=True, cwd=SADTALKER_DIR)
+    mp4s = sorted(out_dir.rglob("*.mp4"))
+    if not mp4s:
+        raise ValueError("talking-head model produced no video")
+    return mp4s[-1].read_bytes()
+
+
+# --------------------------------------------------------------------------- #
 #  evaluate / voice  (Piper synth)                                           #
 # --------------------------------------------------------------------------- #
 
@@ -237,16 +383,49 @@ def _piper_synth(model_ref: str, text: str) -> bytes:
     return data
 
 
+def _profile_dir(model_ref: str) -> pathlib.Path:
+    d = WORK / "faces" / model_ref
+    if not (d / "meta.json").exists():
+        raise ValueError(f"face profile {model_ref} not found on this worker — train it here")
+    return d
+
+
+def _audio_for(script_text: str) -> pathlib.Path:
+    """Piper synth with the latest voice model if there is one, else a mock tone."""
+    models = sorted((WORK / "models").glob("voice-*.onnx"))
+    out = WORK / "tmp" / f"{uuid.uuid4().hex}.wav"
+    if models:
+        out.write_bytes(_piper_synth(models[-1].stem, script_text))
+    else:
+        out.write_bytes(_mock_wav(max(2.0, len(script_text.split()) / 2.3),
+                                  max(1, len(script_text.split()))))
+    return out
+
+
 def do_evaluate(payload: dict, _set_stage=None):
-    if payload.get("profile") != "voice":
-        # non-voice profiles: no real model — return a placeholder tone so the UI
-        # has something, clearly EXPERIMENTAL
-        data = _mock_wav(3.0, 6)
-        return {"result": {"scores": {}, "note": "no real model for this profile yet",
+    profile = payload.get("profile")
+    if profile == "voice":
+        data = _piper_synth(str(payload.get("modelRef") or ""), str(payload.get("scriptText", "")))
+        return {"result": {"scores": {}, "note": "listen and score against §4",
                            "kind": "EXPERIMENTAL"}}, data, "audio/wav"
-    data = _piper_synth(str(payload.get("modelRef") or ""), str(payload.get("scriptText", "")))
-    return {"result": {"scores": {}, "note": "listen and score against the Tanzania bar (§4)",
-                       "kind": "EXPERIMENTAL"}}, data, "audio/wav"
+
+    if profile == "speaking_style":
+        return {"result": {"scores": {}, "note": "not implemented"}}, _mock_wav(3, 6), "audio/wav"
+
+    # face_identity / face_performance / lipsync -> visual preview
+    d = _profile_dir(str(payload.get("modelRef") or ""))
+    ref = d / "reference.png"
+    if profile == "face_identity":
+        # the point of this preview: "is this really me, not a cartoon?"
+        return {"result": {"scores": {}, "note": "this is a real frame from your video — "
+                           "check identity, skin, lighting (§4)", "kind": "EXPERIMENTAL"}}, \
+               ref.read_bytes(), "image/png"
+    audio = _audio_for(str(payload.get("scriptText", "")))
+    drv = d / "driving.mp4"
+    video = _talking_head(ref, audio, drv if drv.exists() else None)
+    return {"result": {"scores": {}, "note": "watch: identity held? mouth matches Swahili? "
+                       "believable as a real recording? (§4)", "kind": "EXPERIMENTAL"}}, \
+           video, "video/mp4"
 
 
 def do_voice(payload: dict, _set_stage=None):
@@ -280,9 +459,13 @@ def _mock_wav(seconds: float, words: int) -> bytes:
 
 
 def do_face(payload: dict, _set_stage=None):
+    ref = str(payload.get("modelRef") or "")
+    if ref:
+        d = _profile_dir(ref)
+        return (d / "reference.png").read_bytes(), "image/png", {"modelRef": ref, "real": True}
+    # no trained face profile yet -> obvious mock (brief §0)
     w = int(payload.get("width", 720)); h = int(payload.get("height", 900))
-    png = _mock_png(w, h)
-    return png, "image/png", {"width": w, "height": h, "mock": True}
+    return _mock_png(w, h), "image/png", {"width": w, "height": h, "mock": True}
 
 
 def _mock_png(w: int, h: int) -> bytes:
@@ -301,12 +484,27 @@ def _mock_png(w: int, h: int) -> bytes:
 
 
 def do_lipsync(payload: dict, _set_stage=None):
-    face_b64 = payload.get("faceB64"); audio_b64 = payload.get("audioB64")
-    if not face_b64 or not audio_b64:
-        raise ValueError("lipsync needs faceB64 + audioB64")
+    audio_b64 = payload.get("audioB64")
+    if not audio_b64:
+        raise ValueError("lipsync needs audioB64")
+    ap = WORK / "tmp" / f"{uuid.uuid4().hex}.wav"
+    ap.write_bytes(base64.b64decode(audio_b64))
+
+    ref_model = str(payload.get("modelRef") or "")
+    if ref_model:
+        # real talking-head: your trained face + this audio (SadTalker / LivePortrait)
+        d = _profile_dir(ref_model)
+        drv = d / "driving.mp4"
+        video = _talking_head(d / "reference.png", ap, drv if drv.exists() else None)
+        ap.unlink(missing_ok=True)
+        return video, "video/mp4", {"modelRef": ref_model, "real": True, "faceModel": FACE_MODEL}
+
+    # no trained face profile -> obvious mock lip-bar over the sent face
+    face_b64 = payload.get("faceB64")
+    if not face_b64:
+        raise ValueError("no face profile and no faceB64 — train a face profile first")
     w = int(payload.get("width", 720)); h = int(payload.get("height", 900))
     fp = WORK / "tmp" / f"{uuid.uuid4().hex}.png"; fp.write_bytes(base64.b64decode(face_b64))
-    ap = WORK / "tmp" / f"{uuid.uuid4().hex}.wav"; ap.write_bytes(base64.b64decode(audio_b64))
     op = WORK / "tmp" / f"{uuid.uuid4().hex}.mp4"
     ff = os.environ.get("FFMPEG", "ffmpeg")
     vf = (f"scale={w}:{h},drawbox=x={round(w/2-w*0.12)}:y={round(h*0.72)}:"

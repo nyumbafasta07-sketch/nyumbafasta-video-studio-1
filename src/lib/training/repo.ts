@@ -287,6 +287,7 @@ const PROFILE_LABEL: Record<Profile, string> = {
   speaking_style: "Speaking Style",
   face_identity: "Face Identity",
   face_performance: "Face Performance",
+  lipsync: "Lip-Sync",
 };
 
 export function nextVersionNum(profile: Profile): number {

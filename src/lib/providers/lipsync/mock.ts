@@ -5,6 +5,7 @@
  */
 import { getStorage, projectPaths } from "../../storage";
 import { getGpu } from "../gpu";
+import { productionVersion } from "../../training/repo";
 import type { LipSyncProvider, LipSyncResult } from "../types";
 
 export class MockLipSyncProvider implements LipSyncProvider {
@@ -36,6 +37,13 @@ export class MockLipSyncProvider implements LipSyncProvider {
       // a remote worker can't read our files — send the bytes
       payload.faceB64 = (await storage.get(input.facePath)).toString("base64");
       payload.audioB64 = (await storage.get(input.audioPath)).toString("base64");
+      // prefer the trained lip-sync profile, else the face identity profile
+      payload.modelRef = String(
+        productionVersion("lipsync")?.config?.modelRef ??
+          productionVersion("face_identity")?.config?.modelRef ??
+          "",
+      );
+      payload.perfRef = String(productionVersion("face_performance")?.config?.modelRef ?? "");
     }
     const artifact = await gpu.execute({
       type: "lipsync",
