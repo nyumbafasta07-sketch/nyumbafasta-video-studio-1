@@ -226,6 +226,8 @@ def main() -> None:
     ap.add_argument("--out", default="./out")
     ap.add_argument("--whisper", default="small")
     ap.add_argument("--lang", default="sw")
+    ap.add_argument("--photos", default="", help="optional dir of face photos "
+                    "(jpg/png) — used when you upload audio instead of video")
     a = ap.parse_args()
 
     vroot = pathlib.Path(a.videos)
@@ -234,6 +236,16 @@ def main() -> None:
     (ds / "wavs").mkdir(parents=True, exist_ok=True)
     (ds / "faces").mkdir(parents=True, exist_ok=True)
     (out / "work").mkdir(parents=True, exist_ok=True)
+
+    photos_n = 0
+    if a.photos and pathlib.Path(a.photos).is_dir():
+        import shutil as _sh
+
+        for p in sorted(pathlib.Path(a.photos).iterdir()):
+            if p.suffix.lower() in {".jpg", ".jpeg", ".png", ".webp"}:
+                _sh.copy(p, ds / "faces" / p.name)
+                photos_n += 1
+        print(f"copied {photos_n} face photos -> dataset/faces/")
 
     vids = sorted(p for p in vroot.iterdir() if p.suffix.lower() in VIDEO_EXT)
     if not vids:
@@ -287,6 +299,7 @@ def main() -> None:
     (out / "report.json").write_text(json.dumps({
         "clips_total": total_clips,
         "speech_seconds_total": round(sum(r["speech_seconds"] for r in report), 1),
+        "face_photos_added": photos_n,
         "videos": report,
     }, indent=2, ensure_ascii=False))
     print(f"\nDONE — {total_clips} clips, "
