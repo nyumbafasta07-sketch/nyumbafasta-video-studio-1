@@ -4,6 +4,7 @@ const NAV = [
   ["/", "Dashboard"],
   ["/projects", "Projects"],
   ["/create", "Create Video"],
+  ["/training", "Training"],
   ["/assets", "Assets"],
   ["/models", "Models"],
   ["/settings", "Settings"],

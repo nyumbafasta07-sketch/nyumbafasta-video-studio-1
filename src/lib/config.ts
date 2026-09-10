@@ -41,6 +41,7 @@ export const config = {
     lipsync: str("LIPSYNC_PROVIDER", "mock"),
     renderer: str("RENDERER", "ffmpeg"),
     gpu: str("GPU_PROVIDER", "local-mock"),
+    training: str("TRAINING_PROVIDER", "mock"),
   },
 
   gpuWorker: {
