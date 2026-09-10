@@ -82,6 +82,7 @@ function rowDataset(r: Record<string, unknown>): Dataset {
     id: r.id as string,
     label: r.label as string,
     version_num: r.version_num as number,
+    worker_ref: (r.worker_ref as string) ?? "",
     video_ids: JSON.parse((r.video_ids_json as string) || "[]"),
     clip_count: r.clip_count as number,
     speech_seconds: r.speech_seconds as number,
@@ -98,6 +99,7 @@ export function createDataset(d: {
   speechSeconds: number;
   frameCount: number;
   faceOkRatio: number;
+  workerRef?: string;
   notes?: string;
 }): Dataset {
   const n =
@@ -108,13 +110,14 @@ export function createDataset(d: {
   getDb()
     .prepare(
       `INSERT INTO datasets
-        (id, label, version_num, video_ids_json, clip_count, speech_seconds, frame_count, face_ok_ratio, notes, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        (id, label, version_num, worker_ref, video_ids_json, clip_count, speech_seconds, frame_count, face_ok_ratio, notes, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     )
     .run(
       id,
       `Dataset v${n}`,
       n,
+      d.workerRef ?? "",
       JSON.stringify(d.videoIds),
       d.clipCount,
       d.speechSeconds,

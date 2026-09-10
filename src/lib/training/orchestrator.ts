@@ -145,7 +145,7 @@ async function run(jobId: string): Promise<TrainingJob> {
     evalJson: { breakdown: result.evalBreakdown, kind: result.kind },
     license: result.license,
     gpuUsed: result.gpuUsed,
-    config: job.config,
+    config: { ...job.config, modelRef: result.modelRef ?? "" },
   });
 
   // fixed evaluation scripts (§8.5) so there is something to A/B
@@ -159,6 +159,7 @@ async function run(jobId: string): Promise<TrainingJob> {
       versionNum: version.version_num,
       testKey: s.key,
       scriptText: s.text,
+      modelRef: result.modelRef,
     });
     addEvalRun({
       versionId: version.id,

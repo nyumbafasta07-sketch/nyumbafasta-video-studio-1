@@ -100,6 +100,7 @@ CREATE TABLE IF NOT EXISTS datasets (
   id             TEXT PRIMARY KEY,
   label          TEXT NOT NULL,              -- "Dataset v1", "v2" ...
   version_num    INTEGER NOT NULL DEFAULT 1,
+  worker_ref     TEXT NOT NULL DEFAULT '',   -- worker-side dataset dir id (real training)
   video_ids_json TEXT NOT NULL DEFAULT '[]',
   clip_count     INTEGER NOT NULL DEFAULT 0,
   speech_seconds REAL NOT NULL DEFAULT 0,

@@ -86,6 +86,7 @@ export interface Dataset {
   id: string;
   label: string;
   version_num: number;
+  worker_ref: string;
   video_ids: string[];
   clip_count: number;
   speech_seconds: number;

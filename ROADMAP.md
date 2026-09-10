@@ -62,10 +62,19 @@ passes the Tanzania bar (§4).
       model_versions with EXPERIMENTAL→APPROVED→PRODUCTION; fixed-script
       evaluation + A/B compare. All 4 profiles scaffolded. `TrainingProvider`
       mock now → `worker` (GPU) later, no UI change.
+- [x] **Real GPU worker** — `worker/colab/gpu_worker.py` + `gpu_worker.ipynb`
+      (EXPERIMENTAL, untested): real `ingest` (Whisper sw) / `build_dataset` /
+      `train` (Piper fine-tune, voice only) / `evaluate` / `voice` synth. Driven
+      from the app's Training Studio when Settings → Compute is set to
+      `http` / `worker`. Face + lip-sync still mock in this worker.
+- [x] App plumbing: `datasets.worker_ref`, version `config.modelRef`,
+      voice generation uses the PRODUCTION voice model's `modelRef` when on a
+      real worker. `worker/colab/REAL_AI.md` documents the whole loop.
 - [ ] **Founder gathers authorized recordings** (20–40 min, varied topics) ← now
-- [ ] Run `ingest.ipynb` → clean `dataset/metadata.csv`
-- [ ] Run `finetune_piper.ipynb` → Founder Voice v1 → eval vs the 27 sentences
-- [ ] Integrate winner behind `VoiceProvider`; keep mock as fallback
+- [ ] Run `gpu_worker.ipynb`, point Settings → Compute at it, run a real Train
+      job from the UI, debug the first runs
+- [ ] Judge Founder Voice v1 against §4; promote or iterate (more data /
+      bigger-GPU XTTS-F5 fine-tune)
 
 ## Phase 4 — Real Face / Avatar
 

@@ -23,6 +23,8 @@ export interface DatasetStats {
   speechSeconds: number;
   frameCount: number;
   faceOkRatio: number;
+  /** worker-side dataset dir id (real training) */
+  workerRef?: string;
 }
 
 export interface TrainResult {
@@ -32,6 +34,8 @@ export interface TrainResult {
   gpuUsed: string;
   license: string;
   kind: "MOCK" | "EXPERIMENTAL" | "PRODUCTION";
+  /** worker-side handle for the trained model, stored on the version's config */
+  modelRef?: string;
 }
 
 export interface EvalResult {
@@ -63,6 +67,7 @@ export interface TrainingProvider {
     versionNum: number;
     testKey: string;
     scriptText: string;
+    modelRef?: string;
   }): Promise<EvalResult>;
 }
 
@@ -194,6 +199,7 @@ export class MockTrainingProvider implements TrainingProvider {
     versionNum: number;
     testKey: string;
     scriptText: string;
+    modelRef?: string;
   }): Promise<EvalResult> {
     const storage = getStorage();
     const isFace = input.profile === "face_identity" || input.profile === "face_performance";

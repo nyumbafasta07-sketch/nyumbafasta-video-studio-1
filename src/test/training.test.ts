@@ -106,7 +106,7 @@ describe("mock training provider", () => {
 
 function fakeDs() {
   return {
-    id: "ds_x", label: "Dataset v1", version_num: 1, video_ids: [],
+    id: "ds_x", label: "Dataset v1", version_num: 1, worker_ref: "", video_ids: [],
     clip_count: 0, speech_seconds: 0, frame_count: 0, face_ok_ratio: 0,
     notes: "", created_at: new Date().toISOString(),
   };
