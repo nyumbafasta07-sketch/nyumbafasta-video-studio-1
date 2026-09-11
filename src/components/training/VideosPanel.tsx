@@ -156,6 +156,13 @@ export function VideosPanel() {
     load();
   }
 
+  /** Re-run quality analysis without re-uploading — for whenever the pipeline
+   * itself improves and old results need a refresh. */
+  async function reanalyze(v: Video) {
+    await fetch(`/api/training/videos/${v.id}/reingest`, { method: "POST" });
+    load();
+  }
+
   const marked = videos.filter((v) => v.in_dataset).length;
 
   return (
@@ -236,7 +243,10 @@ export function VideosPanel() {
                       </label>
                     </td>
                     <td style={{ textAlign: "right" }}>
-                      <button className="icon-btn" onClick={() => del(v)} title="Delete"><Icon.trash /></button>
+                      <div className="row" style={{ justifyContent: "flex-end", flexWrap: "nowrap", gap: 4 }}>
+                        <button className="icon-btn" onClick={() => reanalyze(v)} title="Re-analyze (no re-upload)"><Icon.refresh /></button>
+                        <button className="icon-btn" onClick={() => del(v)} title="Delete"><Icon.trash /></button>
+                      </div>
                     </td>
                   </tr>
                 ))}
