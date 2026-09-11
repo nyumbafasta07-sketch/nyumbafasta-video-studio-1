@@ -12,7 +12,7 @@
       "visibility": "private"
     }
   },
-  "postCreateCommand": "npm install",
+  "postCreateCommand": "npm install && pip install --quiet --user semgrep || true",
   "postStartCommand": "bash .devcontainer/start.sh",
   "customizations": {
     "vscode": {

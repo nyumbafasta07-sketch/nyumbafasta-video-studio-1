@@ -12,7 +12,8 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "hash-password": "node scripts/hash-password.mjs",
-    "worker": "python3 worker/worker.py"
+    "worker": "python3 worker/worker.py",
+    "security-scan": "semgrep scan --config=p/security-audit --config=p/secrets --config=p/owasp-top-ten --config=p/react --config=p/nextjs --exclude node_modules --exclude .next --exclude storage --metrics=off"
   },
   "dependencies": {
     "next": "14.2.35",

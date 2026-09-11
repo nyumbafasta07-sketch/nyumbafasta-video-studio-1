@@ -61,6 +61,25 @@ models are sensitive personal assets. The rules below are non-negotiable.
   packages for anything security-relevant.
 - `ffmpeg-static` ships a pinned binary; pin its version in `package.json`.
 
+## Static analysis (Semgrep)
+
+`npm run security-scan` runs Semgrep (security-audit + secrets + OWASP Top 10 +
+React + Next.js rulesets) against the whole repo. Installed automatically in a
+fresh Codespace (`.devcontainer/devcontainer.json`'s `postCreateCommand`);
+elsewhere: `pip install --user semgrep`.
+
+Last full run (2026-09-11, training-studio branch vs main): one real finding,
+fixed — `src/app/login/page.tsx`'s post-login redirect assigned an
+unvalidated `?next=` query param straight to `window.location.href`, which a
+`javascript:` URI could turn into script execution in the app's own origin
+right after a real login. Fixed by requiring `next` to be an internal path
+(`startsWith("/")`, not `startsWith("//")`) before using it. Semgrep still
+flags the line (its pattern match can't see the validation branch) — that's
+a known false positive post-fix, not an open issue.
+Other findings (SHA1 used for content-addressing, not crypto; `FFMPEG` env
+var reaching `subprocess.run`) were reviewed and are not exploitable in this
+app's threat model — see git history on that date for the full reasoning.
+
 ## Reporting
 
 Single maintainer. If a security issue is found, fix before any LAN exposure and

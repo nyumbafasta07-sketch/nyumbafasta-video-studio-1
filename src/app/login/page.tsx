@@ -19,7 +19,11 @@ export default function LoginPage() {
     });
     setBusy(false);
     if (res.ok) {
-      const next = new URLSearchParams(window.location.search).get("next") || "/";
+      const raw = new URLSearchParams(window.location.search).get("next") || "/";
+      // must be an internal path — reject protocol-relative ("//evil.com"),
+      // absolute URLs, and non-http(s) schemes like "javascript:" (assigning
+      // those to window.location.href would execute them in this origin)
+      const next = raw.startsWith("/") && !raw.startsWith("//") ? raw : "/";
       window.location.href = next;
     } else {
       const body = await res.json().catch(() => ({}));
