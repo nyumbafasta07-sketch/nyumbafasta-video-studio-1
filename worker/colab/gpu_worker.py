@@ -19,7 +19,7 @@ State lives under WORK_DIR (default /content/vs-work):
   models/<ref>.onnx trained voices                       (from train)
 
 Run:  python gpu_worker.py            (listens on :8800)
-Env:  WORK_DIR, GPU_WORKER_TOKEN, PORT, FFMPEG, WHISPER_SIZE (default small)
+Env:  WORK_DIR, GPU_WORKER_TOKEN, PORT, FFMPEG, WHISPER_SIZE (default medium)
 """
 from __future__ import annotations
 
@@ -43,7 +43,7 @@ import ingest as ing  # sibling: extract_audio, silence_windows, cut, transcribe
 WORK = pathlib.Path(os.environ.get("WORK_DIR", "/content/vs-work"))
 TOKEN = os.environ.get("GPU_WORKER_TOKEN", "")
 PORT = int(os.environ.get("PORT", "8800"))
-WHISPER = os.environ.get("WHISPER_SIZE", "small")
+WHISPER = os.environ.get("WHISPER_SIZE", "medium")  # "small" under-transcribes Swahili; T4 handles medium fine
 PIPER_BASE = os.environ.get(
     "PIPER_BASE_CKPT",
     "https://huggingface.co/datasets/rhasspy/piper-checkpoints/resolve/main/"
@@ -87,7 +87,7 @@ def do_ingest(payload: dict, _set_stage=None):
         clip = vdir / "wavs" / f"{cid}.wav"
         ing.cut(full, s, e, clip)
         text, conf = ing.transcribe(clip, WHISPER, payload.get("lang", "sw"))
-        if len(text) < 3 or conf < -1.2:
+        if len(text) < 3 or conf < -2.2:
             clip.unlink(missing_ok=True)
             continue
         rows.append(f"{cid}|{text}")

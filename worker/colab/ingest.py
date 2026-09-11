@@ -250,7 +250,7 @@ def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--videos", required=True)
     ap.add_argument("--out", default="./out")
-    ap.add_argument("--whisper", default="small")
+    ap.add_argument("--whisper", default="medium")  # "small" under-transcribes Swahili
     ap.add_argument("--lang", default="sw")
     ap.add_argument("--photos", default="", help="optional dir of face photos "
                     "(jpg/png) — used when you upload audio instead of video")
@@ -297,7 +297,7 @@ def main() -> None:
             clip = ds / "wavs" / f"{clip_id}.wav"
             cut(full_wav, s, e, clip)
             text, conf = transcribe(clip, a.whisper, a.lang)
-            if len(text) < 3 or conf < -1.2:
+            if len(text) < 3 or conf < -2.2:
                 clip.unlink(missing_ok=True)
                 continue
             w.writerow([f"wavs/{clip_id}.wav", text])
