@@ -9,11 +9,16 @@ Modes:
                      Next.js app can use it as GPU_PROVIDER=http.
 
 Backends (--backend):
-  mms    Meta MMS-TTS (swh). Real Swahili, single fixed speaker, NO cloning.
-         Reliable. This is the pronunciation / accent BASELINE.
-  xtts   Coqui XTTS v2 (Colab install brittle; kept for local use).
-         NO Swahili — you pass --lang (default en) and use it only to judge
-         "does this sound like me?" (timbre), not Swahili correctness.
+  mms      Meta MMS-TTS (swh). Real Swahili, single fixed speaker, NO cloning.
+           Reliable. This is the pronunciation / accent BASELINE.
+  f5tts    F5-TTS — zero-shot voice clone, MIT-ish licence, actively
+           maintained, no piper-phonemize-style broken dependency. Not
+           officially trained on Swahili — try it before committing to any
+           fine-tune (brief §8.1) and judge pronunciation honestly.
+  xtts     Coqui XTTS v2 (Colab install brittle; kept for local use).
+           NO Swahili — you pass --lang (default en) and use it only to judge
+           "does this sound like me?" (timbre), not Swahili correctness.
+  chatterbox  Resemble AI Chatterbox, MIT, English-only timbre check.
 
 --ref may be a .wav OR a video/other audio file; it is auto-converted with
 ffmpeg to a trimmed mono wav.
@@ -45,7 +50,10 @@ XTTS_IDENTITY = [
      "text": "If this sounds like me, the voice cloning is working well enough."},
 ]
 
-MODEL_NAMES = {"xtts": "coqui/xtts_v2", "mms": "facebook/mms-tts-swh"}
+MODEL_NAMES = {
+    "xtts": "coqui/xtts_v2", "mms": "facebook/mms-tts-swh",
+    "chatterbox": "resemble-ai/chatterbox", "f5tts": "SWivid/F5-TTS",
+}
 
 
 # --------------------------------------------------------------------------- #
@@ -76,6 +84,7 @@ def ensure_wav(path: str, start: float = 0.0, dur: float = 25.0, sr: int = 22050
 _xtts = None
 _mms = None
 _cb = None
+_f5 = None
 
 
 def _load_xtts():
@@ -128,6 +137,31 @@ def synth_xtts(text: str, ref_wav: str, out_path: str, lang: str = "en") -> str:
     _load_xtts().tts_to_file(
         text=text, speaker_wav=ref_wav, language=lang, file_path=out_path
     )
+    return out_path
+
+
+def _load_f5():
+    global _f5
+    if _f5 is None:
+        from f5_tts.api import F5TTS  # type: ignore
+
+        _f5 = F5TTS(device="cpu" if os.environ.get("FORCE_CPU") == "1" else "cuda")
+    return _f5
+
+
+def synth_f5(text: str, ref_wav: str, out_path: str, lang: str = "sw") -> str:
+    """F5-TTS — zero-shot voice clone (flow-matching). MIT-ish licence, no
+    piper-phonemize-style broken dependency. Not officially trained on
+    Swahili (mostly EN/ZH) but conditioning-first is worth trying before any
+    fine-tune (brief §8.1) — judge pronunciation honestly, don't assume it
+    works. ref_wav doubles as both the founder's voice AND (via its
+    transcript) the style reference F5 requires; pass --ref-text if the auto
+    transcription is wrong."""
+    if not ref_wav or not os.path.exists(ref_wav):
+        raise ValueError("f5tts needs --ref pointing at a real audio/video file")
+    tts = _load_f5()
+    ref_text = os.environ.get("F5_REF_TEXT", "")  # "" = F5 auto-transcribes the ref clip
+    tts.infer(ref_file=ref_wav, ref_text=ref_text, gen_text=text, file_wave=out_path)
     return out_path
 
 
@@ -202,10 +236,10 @@ def synth_mms(text: str, ref_wav: str, out_path: str, lang: str = "sw") -> str:
     return out_path
 
 
-BACKENDS = {"xtts": synth_xtts, "mms": synth_mms, "chatterbox": synth_chatterbox}
+BACKENDS = {"xtts": synth_xtts, "mms": synth_mms, "chatterbox": synth_chatterbox, "f5tts": synth_f5}
 
 # backends that clone the founder's voice (English only) -> prepend the ID lines
-CLONE_BACKENDS = {"xtts", "chatterbox"}
+CLONE_BACKENDS = {"xtts", "chatterbox", "f5tts"}
 
 
 # --------------------------------------------------------------------------- #
@@ -351,7 +385,7 @@ def run_serve(backend: str, ref: str, port: int, lang: str) -> None:
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--mode", choices=["benchmark", "serve"], required=True)
-    ap.add_argument("--backend", choices=["xtts", "mms", "chatterbox"], required=True)
+    ap.add_argument("--backend", choices=["xtts", "mms", "chatterbox", "f5tts"], required=True)
     ap.add_argument("--ref", default="", help="founder reference clip (wav or video)")
     ap.add_argument("--out", default="./out")
     ap.add_argument("--port", type=int, default=8800)
