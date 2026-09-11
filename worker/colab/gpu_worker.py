@@ -94,11 +94,15 @@ def do_ingest(payload: dict, _set_stage=None):
         speech += e - s
     (vdir / "metadata.csv").write_text("\n".join(rows) + "\n", encoding="utf-8")
 
+    # 60s assumed one long source video; the actual workflow is many SHORT
+    # clips (brief §8.2 "variety helps" — several videos, not one marathon).
+    # A ~60s clip with 20s+ of recognised speech is good content, not a
+    # problem — only flag genuinely thin/near-silent recordings.
     score = 10
     status = "GOOD FOR TRAINING"
     if vol < -34:
         score -= 3; status = "TOO MUCH BACKGROUND NOISE"
-    if speech < 60:
+    if speech < 15:
         score -= 3; status = "NEEDS MORE SPEECH"
     score = max(1, score)
     meta = {"workerRef": ref, "qualityScore": score, "qualityStatus": status,
