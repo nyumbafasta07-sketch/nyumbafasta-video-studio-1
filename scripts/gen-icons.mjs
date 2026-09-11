@@ -71,3 +71,8 @@ for (const s of [192, 512]) {
   fs.writeFileSync(path.join(dir, `icon-${s}.png`), icon(s));
   console.log(`wrote public/icons/icon-${s}.png`);
 }
+// iOS reads this one specifically (ignores the manifest's icons list) for
+// "Add to Home Screen" — without it iOS falls back to a screenshot instead
+// of a real icon.
+fs.writeFileSync(path.join(dir, "apple-touch-icon.png"), icon(180));
+console.log("wrote public/icons/apple-touch-icon.png");
