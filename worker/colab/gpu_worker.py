@@ -243,10 +243,37 @@ def _gpu_name() -> str:
 #  on that model + your video quality + the GPU (brief §4 / §8.3).            #
 # --------------------------------------------------------------------------- #
 
+_face_cascade = None
+
+
+def _get_face_cascade():
+    """OpenCV Haar cascade — bundled with opencv-python, a stable decades-old
+    API. mediapipe's legacy `mp.solutions` face detector was removed in recent
+    mediapipe releases (breaking on the founder's worker: 'module mediapipe
+    has no attribute solutions') — this avoids that version fragility
+    entirely instead of chasing a pinned version."""
+    global _face_cascade
+    import cv2  # type: ignore
+
+    if _face_cascade is None:
+        path = cv2.data.haarcascades + "haarcascade_frontalface_default.xml"
+        _face_cascade = cv2.CascadeClassifier(path)
+    return _face_cascade
+
+
+def _detect_face(cv2mod, frame_bgr):
+    """Returns the largest face as (x, y, w, h) in pixels, or None."""
+    gray = cv2mod.cvtColor(frame_bgr, cv2mod.COLOR_BGR2GRAY)
+    faces = _get_face_cascade().detectMultiScale(
+        gray, scaleFactor=1.1, minNeighbors=5, minSize=(60, 60))
+    if len(faces) == 0:
+        return None
+    # largest detected face = most likely the subject, not someone in the background
+    return max(faces, key=lambda f: f[2] * f[3])
+
+
 def _train_face(payload: dict, set_stage=None):
     import cv2  # type: ignore
-    import numpy as np  # noqa
-    import mediapipe as mp  # type: ignore
 
     profile = payload["profile"]
     dref = str(payload.get("datasetRef") or "")
@@ -262,7 +289,6 @@ def _train_face(payload: dict, set_stage=None):
 
     if set_stage:
         set_stage("extracting_frames")
-    det = mp.solutions.face_detection.FaceDetection(model_selection=1, min_detection_confidence=0.6)
     best = []  # (score, frame_bgr, bbox)
     driving_src = None
     for r in refs:
@@ -278,20 +304,19 @@ def _train_face(payload: dict, set_stage=None):
             if not ok:
                 continue
             h, w = frame.shape[:2]
-            res = det.process(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
-            if not res.detections:
+            face = _detect_face(cv2, frame)
+            if face is None:
                 continue
-            b = res.detections[0].location_data.relative_bounding_box
-            if b.width < 0.12 or b.height < 0.12:
+            x, y, fw, fh = [int(v) for v in face]
+            if fw < 0.12 * w or fh < 0.12 * h:
                 continue
             # front-ish (face centred) + sharp
-            centred = 1 - min(1, abs((b.xmin + b.width / 2) - 0.5) * 4)
-            x, y = max(0, int(b.xmin * w)), max(0, int(b.ymin * h))
-            crop = frame[y:y + int(b.height * h), x:x + int(b.width * w)]
+            centred = 1 - min(1, abs((x + fw / 2) / w - 0.5) * 4)
+            crop = frame[y:y + fh, x:x + fw]
             if crop.size == 0:
                 continue
             sharp = cv2.Laplacian(cv2.cvtColor(crop, cv2.COLOR_BGR2GRAY), cv2.CV_64F).var()
-            best.append((centred * 2 + min(sharp, 400) / 100, frame, (x, y, crop.shape[1], crop.shape[0])))
+            best.append((centred * 2 + min(sharp, 400) / 100, frame, (x, y, fw, fh)))
         cap.release()
 
     if not best:

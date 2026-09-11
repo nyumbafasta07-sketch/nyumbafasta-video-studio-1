@@ -175,17 +175,20 @@ _facedet = None
 
 
 def face_scores(video: pathlib.Path, out_dir: pathlib.Path, n: int = 12):
-    """Sample n frames, return (found_ratio, mean_face_frac, mean_sharpness, saved)."""
+    """Sample n frames, return (found_ratio, mean_face_frac, mean_sharpness, saved).
+
+    Uses OpenCV's Haar cascade (bundled with opencv-python, a stable decades-old
+    API) rather than mediapipe's legacy `mp.solutions` detector, which recent
+    mediapipe releases removed outright ('module mediapipe has no attribute
+    solutions') — this sidesteps that version fragility entirely."""
     global _facedet
     try:
         import cv2  # type: ignore
-        import mediapipe as mp  # type: ignore
     except Exception as exc:  # noqa: BLE001
         return {"error": f"face libs unavailable: {exc}"}
 
     if _facedet is None:
-        _facedet = mp.solutions.face_detection.FaceDetection(
-            model_selection=1, min_detection_confidence=0.5)
+        _facedet = cv2.CascadeClassifier(cv2.data.haarcascades + "haarcascade_frontalface_default.xml")
 
     cap = cv2.VideoCapture(str(video))
     total = int(cap.get(cv2.CAP_PROP_FRAME_COUNT)) or 0
@@ -199,14 +202,13 @@ def face_scores(video: pathlib.Path, out_dir: pathlib.Path, n: int = 12):
         if not ok:
             continue
         h, w = frame.shape[:2]
-        res = _facedet.process(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
-        if not res.detections:
+        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+        faces = _facedet.detectMultiScale(gray, scaleFactor=1.1, minNeighbors=5, minSize=(60, 60))
+        if len(faces) == 0:
             continue
+        x, y, cw, ch = max(faces, key=lambda f: f[2] * f[3])
         found += 1
-        box = res.detections[0].location_data.relative_bounding_box
-        fracs.append(max(0.0, min(1.0, box.height)))
-        x, y = max(0, int(box.xmin * w)), max(0, int(box.ymin * h))
-        cw, ch = int(box.width * w), int(box.height * h)
+        fracs.append(max(0.0, min(1.0, ch / h)))
         crop = frame[y:y + ch, x:x + cw]
         if crop.size:
             sharps.append(cv2.Laplacian(cv2.cvtColor(crop, cv2.COLOR_BGR2GRAY),
