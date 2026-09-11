@@ -25,16 +25,19 @@ interface UploadItem {
 const statusClass = (s: string) =>
   s === "GOOD FOR TRAINING" ? "good" : s === "PENDING" ? "state" : "failed";
 
-/** XHR (not fetch) so we get real upload progress and a distinct network-error
- * signal — needed to tell "still transferring on a slow connection" apart from
- * "the connection was cut" instead of a bare "failed". */
-function uploadWithProgress(file: File, onProgress: (pct: number) => void): Promise<void> {
+const CHUNK_SIZE = 2 * 1024 * 1024; // 2 MB — small enough to survive a weak link
+const CHUNK_TIMEOUT_MS = 60_000;
+const CHUNK_RETRIES = 4;
+
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+function uploadChunk(fd: FormData, onProgress: (frac: number) => void): Promise<void> {
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest();
-    xhr.open("POST", "/api/training/videos");
-    xhr.timeout = 20 * 60 * 1000; // 20 min — large files on a slow link
+    xhr.open("POST", "/api/training/videos/chunk");
+    xhr.timeout = CHUNK_TIMEOUT_MS;
     xhr.upload.onprogress = (e) => {
-      if (e.lengthComputable) onProgress(Math.round((e.loaded / e.total) * 100));
+      if (e.lengthComputable) onProgress(e.loaded / e.total);
     };
     xhr.onload = () => {
       if (xhr.status >= 200 && xhr.status < 300) return resolve();
@@ -47,13 +50,51 @@ function uploadWithProgress(file: File, onProgress: (pct: number) => void): Prom
       }
       reject(new Error(msg));
     };
-    xhr.onerror = () => reject(new Error("Network error — the connection was interrupted during upload"));
-    xhr.ontimeout = () => reject(new Error("Upload timed out (20 min) — file may be too large for this connection"));
-    xhr.onabort = () => reject(new Error("Upload cancelled"));
-    const fd = new FormData();
-    fd.append("file", file);
+    xhr.onerror = () => reject(new Error("network error"));
+    xhr.ontimeout = () => reject(new Error("chunk timed out"));
+    xhr.onabort = () => reject(new Error("cancelled"));
     xhr.send(fd);
   });
+}
+
+async function uploadChunkWithRetry(fd: FormData, onProgress: (frac: number) => void): Promise<void> {
+  let lastErr: unknown;
+  for (let attempt = 1; attempt <= CHUNK_RETRIES; attempt++) {
+    try {
+      return await uploadChunk(fd, onProgress);
+    } catch (e) {
+      lastErr = e;
+      if (attempt < CHUNK_RETRIES) await sleep(600 * attempt); // backoff, then retry just this chunk
+    }
+  }
+  throw lastErr instanceof Error ? lastErr : new Error(String(lastErr));
+}
+
+function newUploadId(): string {
+  const rnd = typeof crypto !== "undefined" && "randomUUID" in crypto ? crypto.randomUUID() : Math.random().toString(36).slice(2);
+  return `${rnd}-${Date.now().toString(36)}`.replace(/[^A-Za-z0-9_-]/g, "").slice(0, 64);
+}
+
+/** Splits the file into small chunks and uploads them one at a time, each with
+ * its own retries — a dropped connection only has to redo a couple of MB, not
+ * the whole file. No quality loss (unlike compression). */
+async function uploadFileChunked(file: File, onProgress: (pct: number) => void): Promise<void> {
+  const uploadId = newUploadId();
+  const total = Math.max(1, Math.ceil(file.size / CHUNK_SIZE));
+  for (let i = 0; i < total; i++) {
+    const start = i * CHUNK_SIZE;
+    const blob = file.slice(start, Math.min(file.size, start + CHUNK_SIZE));
+    const fd = new FormData();
+    fd.append("uploadId", uploadId);
+    fd.append("index", String(i));
+    fd.append("total", String(total));
+    if (i === total - 1) {
+      fd.append("filename", file.name);
+      fd.append("mime", file.type || "video/mp4");
+    }
+    fd.append("chunk", blob, "chunk");
+    await uploadChunkWithRetry(fd, (frac) => onProgress(Math.round(((i + frac) / total) * 100)));
+  }
 }
 
 export function VideosPanel() {
@@ -85,7 +126,7 @@ export function VideosPanel() {
     for (let i = 0; i < files.length; i++) {
       const f = files[i];
       try {
-        await uploadWithProgress(f, (pct) => {
+        await uploadFileChunked(f, (pct) => {
           setUploads((cur) => cur.map((u, idx) => (idx === i ? { ...u, pct } : u)));
         });
         setUploads((cur) => cur.map((u, idx) => (idx === i ? { ...u, pct: 100 } : u)));
@@ -127,12 +168,11 @@ export function VideosPanel() {
         </p>
         <input type="file" accept="video/*,audio/*" multiple onChange={upload} disabled={busy} />
         <p className="field-hint">
-          Upload always writes the file locally right away — quality analysis
-          (Whisper / face detect, possibly on your GPU worker) runs afterwards
-          in the background; the row starts <b>PENDING</b> and updates itself.
-          Big files upload slowly on a weak connection — try a small file (a
-          few MB) first, or shrink first (see{" "}
-          <span className="mono">worker/colab/RUN_ON_COLAB.md</span>).
+          Uploaded in small pieces (2 MB) so a weak connection only has to
+          retry a piece, not the whole file — original quality, nothing
+          compressed. Once fully received, quality analysis (Whisper / face
+          detect, possibly on your GPU worker) runs in the background; the row
+          starts <b>PENDING</b> and updates itself.
         </p>
 
         {uploads.length > 0 ? (
