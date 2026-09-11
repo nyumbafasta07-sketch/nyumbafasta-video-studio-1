@@ -247,15 +247,29 @@ def _train_voice(payload: dict, set_stage=None):
     bs = int(os.environ.get("F5_BATCH_SIZE", "2000"))  # frames/gpu — conservative for a T4
     save_every = int(os.environ.get("F5_SAVE_EVERY", "50"))
     lr = os.environ.get("F5_LR", "1e-5")
-    subprocess.run(
-        ["accelerate", "launch", str(f5_pkg / "train/finetune_cli.py"),
-         "--exp_name", F5_EXP_NAME, "--dataset_name", model_ref, "--finetune",
-         "--tokenizer", F5_TOKENIZER, "--epochs", str(epochs),
-         "--batch_size_per_gpu", str(bs), "--batch_size_type", "frame",
-         "--save_per_updates", str(save_every), "--last_per_updates", str(save_every),
-         "--learning_rate", lr],
-        check=True, capture_output=True, cwd=F5TTS_REPO_DIR,
-    )
+    workers = int(os.environ.get("F5_NUM_WORKERS", "2"))  # F5-TTS's own script hardcodes 16 — OOMs free Colab
+    driver = os.environ.get("F5_FINETUNE_DRIVER", "/content/f5_finetune_driver.py")
+    if not pathlib.Path(driver).exists():
+        raise ValueError(f"F5 finetune driver not found at {driver} — re-run the notebook's writefile cell")
+    # A long tqdm-heavy training run piped through capture_output=True buffers
+    # its ENTIRE stdout/stderr in this process's memory until it exits — over
+    # tens of minutes that alone can OOM the worker (killing the HTTP server
+    # too, not just the training subprocess). Stream to a log file instead.
+    log_path = tmp / "finetune.log"
+    try:
+        with open(log_path, "w") as logf:
+            subprocess.run(
+                ["accelerate", "launch", driver,
+                 "--exp_name", F5_EXP_NAME, "--dataset_name", model_ref, "--finetune",
+                 "--tokenizer", F5_TOKENIZER, "--epochs", str(epochs),
+                 "--batch_size_per_gpu", str(bs), "--batch_size_type", "frame",
+                 "--save_per_updates", str(save_every), "--last_per_updates", str(save_every),
+                 "--learning_rate", lr, "--num_workers", str(workers)],
+                check=True, stdout=logf, stderr=subprocess.STDOUT, cwd=F5TTS_REPO_DIR,
+            )
+    except subprocess.CalledProcessError as exc:
+        tail = log_path.read_text(errors="replace")[-3000:] if log_path.exists() else ""
+        raise ValueError(f"F5-TTS finetune failed (exit {exc.returncode}):\n{tail}") from None
 
     if set_stage:
         set_stage("evaluating")
