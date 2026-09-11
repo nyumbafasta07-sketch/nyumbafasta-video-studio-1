@@ -64,8 +64,25 @@ def duration(path: pathlib.Path) -> float:
     return int(m[1]) * 3600 + int(m[2]) * 60 + float(m[3])
 
 
-def silence_windows(wav: pathlib.Path, noise_db: int = -30, min_sil: float = 0.4):
-    """Return (start, end) speech spans between detected silences."""
+def adaptive_noise_db(mean_vol_db: float) -> float:
+    """Silence threshold relative to the recording's own loudness, not a fixed
+    number. A quiet phone-mic recording (mean around -30 to -35dB) has actual
+    speech sitting close to or below a flat -30dB cutoff, so a fixed threshold
+    misclassifies almost the whole file as "silence" and near-zero speech gets
+    recognised. Set the cutoff clearly below the recording's average instead,
+    clamped to a sane range."""
+    return max(-45.0, min(-18.0, mean_vol_db - 10.0))
+
+
+def silence_windows(wav: pathlib.Path, noise_db: float = -30, min_sil: float = 0.4):
+    """Return (start, end) speech spans between detected silences.
+
+    Natural speech is full of short pauses well under MIN_SEC on its own — a
+    filter that drops any individual span shorter than MIN_SEC silently throws
+    away most real conversational audio. Instead, short spans separated by a
+    brief gap are MERGED into one clip (a pause inside a clip is normal); only
+    a genuinely negligible leftover fragment (<0.6s) is dropped.
+    """
     err = sh(["ffmpeg", "-i", str(wav), "-af",
               f"silencedetect=noise={noise_db}dB:d={min_sil}", "-f", "null", "-"])
     starts = [float(x) for x in re.findall(r"silence_start:\s*([\d.]+)", err)]
@@ -80,13 +97,22 @@ def silence_windows(wav: pathlib.Path, noise_db: int = -30, min_sil: float = 0.4
         cur = e
     if total - cur > 0.3:
         spans.append((cur, total))
-    # enforce length bounds: drop < MIN, hard-cut > MAX
-    out = []
+
+    # merge spans forward across short gaps until each clip reaches MIN_SEC
+    merged: list[tuple[float, float]] = []
     for s, e in spans:
+        if merged and s - merged[-1][1] <= 1.2 and (merged[-1][1] - merged[-1][0]) < MIN_SEC:
+            merged[-1] = (merged[-1][0], e)
+        else:
+            merged.append((s, e))
+
+    # enforce length bounds: hard-cut > MAX, drop only negligible leftovers
+    out = []
+    for s, e in merged:
         while e - s > MAX_SEC:
             out.append((s, s + MAX_SEC))
             s += MAX_SEC
-        if e - s >= MIN_SEC:
+        if e - s >= 0.6:
             out.append((s, e))
     return out
 
@@ -262,7 +288,7 @@ def main() -> None:
         full_wav = out / "work" / f"{v.stem}.wav"
         extract_audio(v, full_wav)
         vol_db = mean_volume_db(full_wav)
-        spans = silence_windows(full_wav)
+        spans = silence_windows(full_wav, noise_db=adaptive_noise_db(vol_db))
         print(f"  {len(spans)} candidate clips, mean volume {vol_db:.1f} dB")
 
         kept, speech_sec = 0, 0.0

@@ -79,7 +79,7 @@ def do_ingest(payload: dict, _set_stage=None):
     full = vdir / "audio.wav"
     ing.extract_audio(src, full)
     vol = ing.mean_volume_db(full)
-    spans = ing.silence_windows(full)
+    spans = ing.silence_windows(full, noise_db=ing.adaptive_noise_db(vol))
 
     rows, speech = [], 0.0
     for i, (s, e) in enumerate(spans):
