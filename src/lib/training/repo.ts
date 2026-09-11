@@ -75,6 +75,23 @@ export function deleteVideo(id: string) {
   getDb().prepare(`DELETE FROM training_videos WHERE id = ?`).run(id);
 }
 
+/** Called when background ingestion (possibly on a remote worker) finishes. */
+export function updateVideoQuality(
+  id: string,
+  patch: { qualityScore: number | null; qualityStatus: string; meta?: Record<string, unknown> },
+) {
+  const cur = getVideo(id);
+  if (!cur) return;
+  getDb()
+    .prepare(`UPDATE training_videos SET quality_score = ?, quality_status = ?, meta_json = ? WHERE id = ?`)
+    .run(
+      patch.qualityScore,
+      patch.qualityStatus,
+      JSON.stringify(patch.meta ?? cur.meta),
+      id,
+    );
+}
+
 /* ---------- datasets ---------- */
 
 function rowDataset(r: Record<string, unknown>): Dataset {

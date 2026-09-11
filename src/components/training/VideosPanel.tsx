@@ -11,11 +11,12 @@ interface Video {
   in_dataset: boolean;
   quality_score: number | null;
   quality_status: string;
+  meta: Record<string, unknown>;
   created_at: string;
 }
 
 const statusClass = (s: string) =>
-  s === "GOOD FOR TRAINING" ? "good" : s === "PENDING" ? "state" : "failed";
+  s === "GOOD FOR TRAINING" ? "good" : s === "PENDING" ? "state" : s === "INGEST FAILED" ? "failed" : "failed";
 
 export function VideosPanel() {
   const [videos, setVideos] = useState<Video[]>([]);
@@ -28,6 +29,13 @@ export function VideosPanel() {
   useEffect(() => {
     load();
   }, []);
+
+  // while anything is still being analyzed in the background, keep polling
+  useEffect(() => {
+    if (!videos.some((v) => v.quality_status === "PENDING")) return;
+    const t = setTimeout(load, 2500);
+    return () => clearTimeout(t);
+  }, [videos]);
 
   async function upload(e: React.ChangeEvent<HTMLInputElement>) {
     const files = Array.from(e.target.files ?? []);
@@ -72,7 +80,11 @@ export function VideosPanel() {
         <input type="file" accept="video/*,audio/*" multiple onChange={upload} disabled={busy} />
         {busy ? <span className="muted"> uploading…</span> : null}
         <p className="field-hint">
-          Big files upload slowly — shrink first (see <span className="mono">worker/colab/RUN_ON_COLAB.md</span>).
+          Upload always succeeds and stores the file locally right away — quality
+          analysis (Whisper / face detect, possibly on your GPU worker) runs
+          afterwards in the background; the row starts <b>PENDING</b> and updates
+          itself. Big files upload slowly — shrink first (see{" "}
+          <span className="mono">worker/colab/RUN_ON_COLAB.md</span>).
         </p>
       </div>
 
@@ -95,7 +107,14 @@ export function VideosPanel() {
                     <td style={{ fontWeight: 550 }}>{v.filename}</td>
                     <td className="muted">{(v.bytes / 1024 / 1024).toFixed(1)} MB</td>
                     <td>{v.quality_score != null ? `${v.quality_score}/10` : "—"}</td>
-                    <td><span className={`badge ${statusClass(v.quality_status)}`}>{v.quality_status}</span></td>
+                    <td>
+                      <span
+                        className={`badge ${statusClass(v.quality_status)}`}
+                        title={v.quality_status === "INGEST FAILED" ? String(v.meta.error ?? "") : undefined}
+                      >
+                        {v.quality_status}
+                      </span>
+                    </td>
                     <td>
                       <label style={{ margin: 0, display: "inline-flex", alignItems: "center", gap: 6, fontSize: 13 }}>
                         <input type="checkbox" checked={v.in_dataset} onChange={() => toggle(v)} />

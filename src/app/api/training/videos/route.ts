@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { bootstrap } from "@/lib/bootstrap";
 import { getStorage } from "@/lib/storage";
 import { addVideo, listVideos } from "@/lib/training/repo";
-import { getTrainingProvider } from "@/lib/training/provider";
+import { enqueueIngest } from "@/lib/training/ingest";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -14,9 +14,14 @@ export async function GET() {
   return NextResponse.json({ videos: listVideos() });
 }
 
-/** Upload an authorized recording. Ingestion (quality score) runs via the
- * TrainingProvider. The video is NOT added to the training dataset until the
- * founder explicitly marks it (brief §8.2). Stored under raw/, kept forever. */
+/**
+ * Upload an authorized recording. The upload itself only writes to local
+ * storage and always succeeds — it never depends on a remote GPU worker being
+ * reachable. Quality analysis (ingest, possibly on a remote worker over the
+ * network) runs afterwards, in the background; the video starts out PENDING
+ * and updates when that finishes (brief §8.2). The video is NOT added to the
+ * training dataset until the founder explicitly marks it.
+ */
 export async function POST(req: NextRequest) {
   bootstrap();
   const form = await req.formData().catch(() => null);
@@ -33,21 +38,22 @@ export async function POST(req: NextRequest) {
   const rel = `raw/${Date.now()}_${safe}`;
   await getStorage().put({ path: rel, data: buf, mime: file.type || "video/mp4" });
 
-  const ingest = await getTrainingProvider().ingestVideo({
+  const video = addVideo({
+    filename: file.name,
+    path: rel,
+    bytes: buf.byteLength,
+    mime: file.type || "video/mp4",
+    qualityScore: null,
+    qualityStatus: "PENDING",
+    meta: {},
+  });
+
+  enqueueIngest(video.id, {
     filename: file.name,
     bytes: buf.byteLength,
     mime: file.type || "video/mp4",
     localPath: rel,
   });
 
-  const video = addVideo({
-    filename: file.name,
-    path: rel,
-    bytes: buf.byteLength,
-    mime: file.type || "video/mp4",
-    qualityScore: ingest.qualityScore,
-    qualityStatus: ingest.qualityStatus,
-    meta: ingest.meta,
-  });
   return NextResponse.json({ video }, { status: 201 });
 }

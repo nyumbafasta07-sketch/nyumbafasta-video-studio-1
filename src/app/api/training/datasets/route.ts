@@ -19,14 +19,26 @@ export async function POST() {
   if (marked.length === 0) {
     return NextResponse.json({ error: 'no videos marked "Add to Training Dataset"' }, { status: 400 });
   }
-  const stats = await getTrainingProvider().buildDataset(marked);
-  const dataset = createDataset({
-    videoIds: marked.map((v) => v.id),
-    clipCount: stats.clipCount,
-    speechSeconds: stats.speechSeconds,
-    frameCount: stats.frameCount,
-    faceOkRatio: stats.faceOkRatio,
-    workerRef: stats.workerRef,
-  });
-  return NextResponse.json({ dataset }, { status: 201 });
+  const pending = marked.filter((v) => v.quality_status === "PENDING");
+  if (pending.length > 0) {
+    return NextResponse.json(
+      { error: `${pending.length} marked video(s) are still being analyzed — wait for them to leave PENDING, then try again` },
+      { status: 409 },
+    );
+  }
+  try {
+    const stats = await getTrainingProvider().buildDataset(marked);
+    const dataset = createDataset({
+      videoIds: marked.map((v) => v.id),
+      clipCount: stats.clipCount,
+      speechSeconds: stats.speechSeconds,
+      frameCount: stats.frameCount,
+      faceOkRatio: stats.faceOkRatio,
+      workerRef: stats.workerRef,
+    });
+    return NextResponse.json({ dataset }, { status: 201 });
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    return NextResponse.json({ error: msg.slice(0, 500) }, { status: 502 });
+  }
 }
