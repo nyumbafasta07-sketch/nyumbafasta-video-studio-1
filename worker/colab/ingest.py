@@ -145,7 +145,12 @@ def transcribe(wav: pathlib.Path, model_size: str, lang: str) -> tuple[str, floa
         dev = "cuda" if _cuda() else "cpu"
         _whisper = WhisperModel(model_size, device=dev,
                                 compute_type="float16" if dev == "cuda" else "int8")
-    segs, _info = _whisper.transcribe(str(wav), language=lang, vad_filter=True)
+    # vad_filter=False: we already pre-segment on silence with our own
+    # loudness-adaptive detector (adaptive_noise_db) before a clip ever reaches
+    # here. Whisper's *own* internal VAD (Silero, fixed sensitivity) applied on
+    # top of that was a second, uncalibrated filter silently discarding real
+    # speech in quiet recordings — it doesn't know this file's loudness.
+    segs, _info = _whisper.transcribe(str(wav), language=lang, vad_filter=False)
     parts, logp = [], []
     for s in segs:
         parts.append(s.text.strip())
