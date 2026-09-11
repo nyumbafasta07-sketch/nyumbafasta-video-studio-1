@@ -4,19 +4,26 @@ REAL GPU worker — voice only (Phase 3 / L1). EXPERIMENTAL, untested.
 
 Implements worker/contract.md (generation + training) with real models:
   ingest        -> ffmpeg + faster-whisper (Swahili) -> clips + transcripts
-  build_dataset -> assemble an LJSpeech dataset from ingested clips
-  train         -> Piper fine-tune (profile=voice only) -> <modelRef>.onnx
-  evaluate      -> Piper synth of a fixed script -> wav preview
-  voice         -> Piper synth with the PRODUCTION model (modelRef)
+  build_dataset -> assemble a dataset from ingested clips
+  train         -> F5-TTS fine-tune (profile=voice only) -> ckpts/<modelRef>/model_last.pt
+  evaluate      -> F5-TTS synth of a fixed script -> wav preview
+  voice         -> F5-TTS synth with the PRODUCTION model (modelRef)
   face/lipsync  -> still MOCK here (real ones are Phase 4/5)
+
+Voice was Piper until 2026-09; piper-phonemize has zero PyPI distributions
+for Python 3.13 (unfixable via pinning), so voice training moved to F5-TTS
+(MIT-ish, actively maintained, supports real fine-tuning not just zero-shot
+conditioning). Needs the F5-TTS repo cloned + editable-installed so that its
+own train scripts can resolve their package-relative data/ckpts dirs — see
+F5TTS_REPO_DIR below and the install cell in gpu_worker.ipynb.
 
 The app (Training Studio + Settings -> Compute) drives this over HTTP. Point
 GPU_WORKER_URL at wherever this runs (Colab tunnel, Kaggle, a local NVIDIA box).
 
 State lives under WORK_DIR (default /content/vs-work):
   videos/<sha1>/    per-recording clips + metadata      (from ingest)
-  datasets/<ref>/   assembled LJSpeech dataset           (from build_dataset)
-  models/<ref>.onnx trained voices                       (from train)
+  datasets/<ref>/   assembled dataset                    (from build_dataset)
+  models/<ref>.f5.json  pointer to the F5-TTS checkpoint (from train)
 
 Run:  python gpu_worker.py            (listens on :8800)
 Env:  WORK_DIR, GPU_WORKER_TOKEN, PORT, FFMPEG, WHISPER_SIZE (default medium)
@@ -44,11 +51,6 @@ WORK = pathlib.Path(os.environ.get("WORK_DIR", "/content/vs-work"))
 TOKEN = os.environ.get("GPU_WORKER_TOKEN", "")
 PORT = int(os.environ.get("PORT", "8800"))
 WHISPER = os.environ.get("WHISPER_SIZE", "medium")  # "small" under-transcribes Swahili; T4 handles medium fine
-PIPER_BASE = os.environ.get(
-    "PIPER_BASE_CKPT",
-    "https://huggingface.co/datasets/rhasspy/piper-checkpoints/resolve/main/"
-    "en/en_US/lessac/medium/epoch%3D2164-step%3D1355540.ckpt",
-)
 
 JOBS: dict[str, dict] = {}
 LOCK = threading.Lock()
@@ -159,12 +161,21 @@ def _wav_seconds(p: pathlib.Path) -> float:
 
 
 # --------------------------------------------------------------------------- #
-#  train  (Piper fine-tune, voice only)                                      #
+#  train  (F5-TTS fine-tune, voice only)                                     #
 # --------------------------------------------------------------------------- #
 
 FACE_MODEL = os.environ.get("FACE_MODEL", "sadtalker")  # sadtalker | liveportrait
 SADTALKER_DIR = os.environ.get("SADTALKER_DIR", "/content/SadTalker")
 LIVEPORTRAIT_DIR = os.environ.get("LIVEPORTRAIT_DIR", "/content/LivePortrait")
+
+# F5-TTS's own train scripts resolve their data/ckpts dirs as
+# "<installed f5_tts package dir>/../../{data,ckpts}" — that only lands inside
+# the repo if F5-TTS was `pip install -e .`'d from a clone at this path (a
+# plain `pip install f5-tts` from PyPI, fine for zero-shot inference, does
+# NOT work for training). See gpu_worker.ipynb's install cell.
+F5TTS_REPO_DIR = os.environ.get("F5TTS_REPO_DIR", "/content/F5-TTS")
+F5_EXP_NAME = os.environ.get("F5_EXP_NAME", "F5TTS_v1_Base")
+F5_TOKENIZER = os.environ.get("F5_TOKENIZER", "pinyin")  # matches the pretrained ckpt's vocab
 
 
 def do_train(payload: dict, set_stage=None):
@@ -175,54 +186,107 @@ def do_train(payload: dict, set_stage=None):
         raise ValueError("speaking_style training not implemented in gpu_worker (Phase 6)")
     if profile != "voice":
         raise ValueError(f"unknown profile {profile!r}")
+    return _train_voice(payload, set_stage)
+
+
+def _train_voice(payload: dict, set_stage=None):
     dref = str(payload.get("datasetRef") or "")
     ddir = WORK / "datasets" / dref
     if not (ddir / "metadata.csv").exists():
         raise ValueError("dataset not on this worker — rebuild the dataset against this worker")
+    f5_pkg = pathlib.Path(F5TTS_REPO_DIR) / "src" / "f5_tts"
+    if not f5_pkg.is_dir():
+        raise ValueError(
+            f"F5-TTS repo not found at {F5TTS_REPO_DIR} — clone it and `pip install -e .` "
+            "first (see the install cell in gpu_worker.ipynb)"
+        )
 
     model_ref = f"voice-{dref[:8]}-{int(time.time())}"
-    out_ckpt_dir = WORK / "tmp" / model_ref
-    out_ckpt_dir.mkdir(parents=True, exist_ok=True)
+    tmp = WORK / "tmp" / model_ref
+    tmp.mkdir(parents=True, exist_ok=True)
+
+    # F5-TTS's data-prep script wants a CSV: "audio_file|text", absolute paths.
+    rows = ["audio_file|text"]
+    best_ref = None  # (duration, wav_path, text) — a short, clean clip for cloning conditioning
+    for line in (ddir / "metadata.csv").read_text(encoding="utf-8").splitlines():
+        if "|" not in line:
+            continue
+        cid, text = line.split("|", 1)
+        text = text.strip()
+        wav = (ddir / "wavs" / f"{cid}.wav").resolve()
+        if not wav.exists() or not text:
+            continue
+        rows.append(f"{wav}|{text}")
+        dur = _wav_seconds(wav)
+        if 2.0 <= dur <= 12.0 and (best_ref is None or dur > best_ref[0]):
+            best_ref = (dur, wav, text)
+    if len(rows) < 2:
+        raise ValueError("dataset has no usable clips — re-ingest with more speech")
+    if best_ref is None:
+        # no clip in the ideal 2-12s range — fall back to whatever exists
+        cid, text = rows[1].split("|", 1)
+    csv_path = tmp / "train.csv"
+    csv_path.write_text("\n".join(rows) + "\n", encoding="utf-8")
+
+    data_dir = pathlib.Path(F5TTS_REPO_DIR) / "data" / f"{model_ref}_{F5_TOKENIZER}"
 
     if set_stage:
         set_stage("preprocessing")
     subprocess.run(
-        ["python", "-m", "piper_train.preprocess", "--language", "sw",
-         "--input-dir", str(ddir), "--output-dir", str(out_ckpt_dir),
-         "--dataset-format", "ljspeech", "--single-speaker", "--sample-rate", "22050"],
-        check=True, capture_output=True,
+        ["python", str(f5_pkg / "train/datasets/prepare_csv_wavs.py"), str(csv_path), str(data_dir)],
+        check=True, capture_output=True, cwd=F5TTS_REPO_DIR,
     )
 
     if set_stage:
         set_stage("training")
-    base = WORK / "tmp" / "piper_base.ckpt"
-    if not base.exists():
-        subprocess.run(["wget", "-q", "-O", str(base), PIPER_BASE], check=True)
-    epochs = int(os.environ.get("PIPER_EPOCHS", "2000"))
+    # Small founder-sized datasets (minutes, not hours) need far fewer updates
+    # than F5-TTS's from-scratch defaults — save_per_updates/last_per_updates
+    # default to 50000/5000, which a tiny dataset may NEVER reach, silently
+    # producing no checkpoint at all. Keep both low so at least one save fires.
+    epochs = int(os.environ.get("F5_EPOCHS", "100"))
+    bs = int(os.environ.get("F5_BATCH_SIZE", "2000"))  # frames/gpu — conservative for a T4
+    save_every = int(os.environ.get("F5_SAVE_EVERY", "50"))
+    lr = os.environ.get("F5_LR", "1e-5")
     subprocess.run(
-        ["python", "-m", "piper_train", "--dataset-dir", str(out_ckpt_dir),
-         "--accelerator", "gpu", "--devices", "1", "--batch-size", "16",
-         "--validation-split", "0.0", "--num-test-examples", "0",
-         "--max_epochs", str(epochs), "--resume_from_checkpoint", str(base),
-         "--checkpoint-epochs", "250", "--precision", "32"],
-        check=True, capture_output=True,
+        ["accelerate", "launch", str(f5_pkg / "train/finetune_cli.py"),
+         "--exp_name", F5_EXP_NAME, "--dataset_name", model_ref, "--finetune",
+         "--tokenizer", F5_TOKENIZER, "--epochs", str(epochs),
+         "--batch_size_per_gpu", str(bs), "--batch_size_type", "frame",
+         "--save_per_updates", str(save_every), "--last_per_updates", str(save_every),
+         "--learning_rate", lr],
+        check=True, capture_output=True, cwd=F5TTS_REPO_DIR,
     )
 
     if set_stage:
         set_stage("evaluating")
-    import glob
-    ckpts = sorted(glob.glob(str(out_ckpt_dir / "lightning_logs/version_*/checkpoints/*.ckpt")))
-    onnx = WORK / "models" / f"{model_ref}.onnx"
-    subprocess.run(["python", "-m", "piper_train.export_onnx", ckpts[-1], str(onnx)],
-                   check=True, capture_output=True)
-    (WORK / "models" / f"{model_ref}.onnx.json").write_bytes((out_ckpt_dir / "config.json").read_bytes())
+    ckpt_dir = pathlib.Path(F5TTS_REPO_DIR) / "ckpts" / model_ref
+    ckpt = ckpt_dir / "model_last.pt"
+    if not ckpt.exists():
+        # last_per_updates may not have lined up exactly — fall back to the
+        # newest periodic checkpoint rather than declaring total failure.
+        numbered = [p for p in ckpt_dir.glob("model_*.pt")
+                   if p.name != "model_last.pt" and not p.name.startswith("pretrained_")]
+        numbered.sort(key=lambda p: int(p.stem.split("_")[1]) if p.stem.split("_")[1].isdigit() else -1)
+        if not numbered:
+            raise ValueError(
+                f"training finished but produced no checkpoint under {ckpt_dir} — "
+                "the dataset may be too small for even one save interval; "
+                "lower F5_SAVE_EVERY and retrain"
+            )
+        ckpt = numbered[-1]
+    vocab = data_dir / "vocab.txt"
+    (WORK / "models" / f"{model_ref}.f5.json").write_text(json.dumps({
+        "ckpt": str(ckpt), "vocab": str(vocab), "exp_name": F5_EXP_NAME,
+        "ref_wav": str(best_ref[1]) if best_ref else "",
+        "ref_text": best_ref[2] if best_ref else "",
+    }))
 
     mins = float(payload.get("datasetStats", {}).get("speechSeconds", 0)) / 60
     proxy = max(1.0, min(9.0, round(8.4 * (1 - math.exp(-mins / 12)), 1)))
-    return {"result": {"baseModel": "piper/en_US-lessac-medium (cross-lang FT)",
+    return {"result": {"baseModel": f"f5-tts/{F5_EXP_NAME} (finetuned)",
                        "modelRef": model_ref, "evalScore": proxy,
                        "evalBreakdown": {"note_human_eval_required": proxy},
-                       "gpuUsed": _gpu_name(), "license": "MIT (Piper)",
+                       "gpuUsed": _gpu_name(), "license": "CC-BY-NC (F5-TTS weights) — check before commercial use",
                        "kind": "EXPERIMENTAL"}}, None, None
 
 
@@ -397,16 +461,33 @@ def _talking_head(reference_png: pathlib.Path, audio_wav: pathlib.Path,
 
 
 # --------------------------------------------------------------------------- #
-#  evaluate / voice  (Piper synth)                                           #
+#  evaluate / voice  (F5-TTS synth with the finetuned checkpoint)            #
 # --------------------------------------------------------------------------- #
 
-def _piper_synth(model_ref: str, text: str) -> bytes:
-    onnx = WORK / "models" / f"{model_ref}.onnx"
-    if not onnx.exists():
-        raise ValueError(f"model {model_ref} not found on this worker")
+_f5_cache: dict[str, object] = {}
+
+
+def _load_f5(ckpt_file: str, vocab_file: str, exp_name: str):
+    if ckpt_file not in _f5_cache:
+        from f5_tts.api import F5TTS  # local import: only needed once a voice model exists
+        _f5_cache[ckpt_file] = F5TTS(model=exp_name, ckpt_file=ckpt_file, vocab_file=vocab_file)
+    return _f5_cache[ckpt_file]
+
+
+def _voice_pointer(model_ref: str) -> dict:
+    p = WORK / "models" / f"{model_ref}.f5.json"
+    if not p.exists():
+        raise ValueError(f"voice model {model_ref} not found on this worker — train it here")
+    return json.loads(p.read_text())
+
+
+def _f5_synth(model_ref: str, text: str) -> bytes:
+    ptr = _voice_pointer(model_ref)
+    if not ptr.get("ref_wav"):
+        raise ValueError(f"voice model {model_ref} has no reference clip recorded — retrain")
+    tts = _load_f5(ptr["ckpt"], ptr["vocab"], ptr.get("exp_name", F5_EXP_NAME))
     out = WORK / "tmp" / f"{uuid.uuid4().hex}.wav"
-    subprocess.run(["piper", "-m", str(onnx), "-f", str(out)],
-                   input=text.encode(), check=True, capture_output=True)
+    tts.infer(ref_file=ptr["ref_wav"], ref_text=ptr["ref_text"], gen_text=text, file_wave=str(out))
     data = out.read_bytes()
     out.unlink(missing_ok=True)
     return data
@@ -420,11 +501,12 @@ def _profile_dir(model_ref: str) -> pathlib.Path:
 
 
 def _audio_for(script_text: str) -> pathlib.Path:
-    """Piper synth with the latest voice model if there is one, else a mock tone."""
-    models = sorted((WORK / "models").glob("voice-*.onnx"))
+    """F5-TTS synth with the latest trained voice if there is one, else a mock tone."""
+    models = sorted((WORK / "models").glob("voice-*.f5.json"))
     out = WORK / "tmp" / f"{uuid.uuid4().hex}.wav"
     if models:
-        out.write_bytes(_piper_synth(models[-1].stem, script_text))
+        model_ref = models[-1].name[: -len(".f5.json")]
+        out.write_bytes(_f5_synth(model_ref, script_text))
     else:
         out.write_bytes(_mock_wav(max(2.0, len(script_text.split()) / 2.3),
                                   max(1, len(script_text.split()))))
@@ -434,7 +516,7 @@ def _audio_for(script_text: str) -> pathlib.Path:
 def do_evaluate(payload: dict, _set_stage=None):
     profile = payload.get("profile")
     if profile == "voice":
-        data = _piper_synth(str(payload.get("modelRef") or ""), str(payload.get("scriptText", "")))
+        data = _f5_synth(str(payload.get("modelRef") or ""), str(payload.get("scriptText", "")))
         return {"result": {"scores": {}, "note": "listen and score against §4",
                            "kind": "EXPERIMENTAL"}}, data, "audio/wav"
 
@@ -462,7 +544,7 @@ def do_voice(payload: dict, _set_stage=None):
     if not ref:
         raise ValueError("no PRODUCTION voice model — train one in the Training Studio and "
                          "promote it, or switch GPU provider back to local-mock")
-    data = _piper_synth(ref, str(payload.get("text", "")))
+    data = _f5_synth(ref, str(payload.get("text", "")))
     return data, "audio/wav", {"modelRef": ref}
 
 
