@@ -9,18 +9,25 @@ point it there in **Settings → Compute**.
 
 ```
   your browser ──► app (local / Codespace) ──HTTP──► gpu_worker.py (Colab / Kaggle / local NVIDIA)
-                     │                                   whisper + piper fine-tune + piper synth
+                     │                                   whisper + F5-TTS fine-tune/synth + SadTalker/LivePortrait
                      ▼
                  storage/ (raw videos, datasets, model versions, eval previews)
 ```
 
 ## One-time setup
 
-1. Run **`gpu_worker.ipynb`** on Colab (`Runtime → Run all`). It prints a
-   `https://…trycloudflare.com` URL (and a token, if you enabled one).
-2. App → **Settings → Compute**: paste the URL + token, **Test connection**,
-   set GPU provider = `http`, Training provider = `worker`, **Save**.
-   (No restart — it takes effect on the next job.)
+Same `gpu_worker.py` runs on three interchangeable backends — pick whichever
+has GPU access right now:
+
+1. Run the worker notebook/script: `worker/colab/gpu_worker.ipynb` (Colab),
+   `worker/kaggle/gpu_worker.ipynb` (Kaggle), or `worker/local/start.sh`
+   (your own NVIDIA GPU via WSL2 — see `worker/local/README.md`). It prints
+   a `https://…trycloudflare.com` URL and a bearer token.
+2. App → **Settings → Compute profiles**: pick the matching card (Colab /
+   Kaggle / Local), paste the URL + token, **Hifadhi**, then **Washa** —
+   this switches GPU provider = `http` and Training provider = `worker` in
+   one click. Switching backends later (e.g. Colab hits its GPU-hours
+   limit) is just picking a different saved profile — no re-pasting.
 
 ## The loop
 
@@ -30,7 +37,7 @@ point it there in **Settings → Compute**.
 | Mark "Add to dataset" | Training → Videos | your explicit choice — nothing trains without it (§8.2) |
 | Build dataset | Training → Datasets | worker assembles an LJSpeech dataset from the transcribed clips |
 | **Train** — one job per profile, all from the same videos: |||
-| &nbsp;&nbsp;`voice` | Training → Jobs | **Piper fine-tune** → `<modelRef>.onnx` (minutes → ~1h) |
+| &nbsp;&nbsp;`voice` | Training → Jobs | **F5-TTS fine-tune** → `ckpts/<modelRef>/model_last.pt` (minutes → ~1h) |
 | &nbsp;&nbsp;`face_identity` | Training → Jobs | scans your video, picks the **best real front-facing reference frame** (+ alternates), scores identity consistency. NOT a cartoon — a frame of you. |
 | &nbsp;&nbsp;`face_performance` | Training → Jobs | pulls a short natural talking clip (blinks, head motion) for expression transfer |
 | &nbsp;&nbsp;`lipsync` | Training → Jobs | prepares your face for the talking-head model (SadTalker / LivePortrait) |
@@ -51,8 +58,9 @@ them on the Models page.
   iterate toward, not a first-run guarantee. Ceiling models (Hallo2 / EMO) need
   an A100-class GPU.
 - **Quality unproven.** No open model has passed the Tanzania bar for Tanzanian
-  Swahili voice yet (MMS failed; Piper fine-tune untested). Escalation for
-  voice = XTTS / F5 fine-tune on a bigger box.
+  Swahili voice yet (MMS zero-shot failed §4; F5-TTS zero-shot voice was
+  close but Swahili pronunciation was weak; F5-TTS fine-tune is the current
+  bet — first full run hasn't completed yet, blocked on reliable GPU access).
 - **`evalScore`** from the worker is a rough proxy. The real judgement is you
   watching / listening to the eval clips on the Models page.
 - **`speaking_style`** training is not implemented (Phase 6).
