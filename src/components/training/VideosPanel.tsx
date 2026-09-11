@@ -15,11 +15,50 @@ interface Video {
   created_at: string;
 }
 
+interface UploadItem {
+  name: string;
+  bytes: number;
+  pct: number; // 0-100, -1 = failed
+  error?: string;
+}
+
 const statusClass = (s: string) =>
-  s === "GOOD FOR TRAINING" ? "good" : s === "PENDING" ? "state" : s === "INGEST FAILED" ? "failed" : "failed";
+  s === "GOOD FOR TRAINING" ? "good" : s === "PENDING" ? "state" : "failed";
+
+/** XHR (not fetch) so we get real upload progress and a distinct network-error
+ * signal — needed to tell "still transferring on a slow connection" apart from
+ * "the connection was cut" instead of a bare "failed". */
+function uploadWithProgress(file: File, onProgress: (pct: number) => void): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open("POST", "/api/training/videos");
+    xhr.timeout = 20 * 60 * 1000; // 20 min — large files on a slow link
+    xhr.upload.onprogress = (e) => {
+      if (e.lengthComputable) onProgress(Math.round((e.loaded / e.total) * 100));
+    };
+    xhr.onload = () => {
+      if (xhr.status >= 200 && xhr.status < 300) return resolve();
+      let msg = `HTTP ${xhr.status}`;
+      try {
+        const body = JSON.parse(xhr.responseText);
+        if (body?.error) msg = typeof body.error === "string" ? body.error : JSON.stringify(body.error);
+      } catch {
+        /* non-JSON response (e.g. a proxy error page) — keep the status code */
+      }
+      reject(new Error(msg));
+    };
+    xhr.onerror = () => reject(new Error("Network error — the connection was interrupted during upload"));
+    xhr.ontimeout = () => reject(new Error("Upload timed out (20 min) — file may be too large for this connection"));
+    xhr.onabort = () => reject(new Error("Upload cancelled"));
+    const fd = new FormData();
+    fd.append("file", file);
+    xhr.send(fd);
+  });
+}
 
 export function VideosPanel() {
   const [videos, setVideos] = useState<Video[]>([]);
+  const [uploads, setUploads] = useState<UploadItem[]>([]);
   const [busy, setBusy] = useState(false);
 
   async function load() {
@@ -41,11 +80,20 @@ export function VideosPanel() {
     const files = Array.from(e.target.files ?? []);
     if (!files.length) return;
     setBusy(true);
-    for (const f of files) {
-      const fd = new FormData();
-      fd.append("file", f);
-      const r = await fetch("/api/training/videos", { method: "POST", body: fd });
-      if (!r.ok) toast(`${f.name}: ${(await r.json().catch(() => ({}))).error ?? "failed"}`, "err");
+    setUploads(files.map((f) => ({ name: f.name, bytes: f.size, pct: 0 })));
+
+    for (let i = 0; i < files.length; i++) {
+      const f = files[i];
+      try {
+        await uploadWithProgress(f, (pct) => {
+          setUploads((cur) => cur.map((u, idx) => (idx === i ? { ...u, pct } : u)));
+        });
+        setUploads((cur) => cur.map((u, idx) => (idx === i ? { ...u, pct: 100 } : u)));
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : "upload failed";
+        setUploads((cur) => cur.map((u, idx) => (idx === i ? { ...u, pct: -1, error: msg } : u)));
+        toast(`${f.name}: ${msg}`, "err");
+      }
     }
     setBusy(false);
     e.target.value = "";
@@ -78,14 +126,40 @@ export function VideosPanel() {
           until you tick <b>Add to dataset</b>.
         </p>
         <input type="file" accept="video/*,audio/*" multiple onChange={upload} disabled={busy} />
-        {busy ? <span className="muted"> uploading…</span> : null}
         <p className="field-hint">
-          Upload always succeeds and stores the file locally right away — quality
-          analysis (Whisper / face detect, possibly on your GPU worker) runs
-          afterwards in the background; the row starts <b>PENDING</b> and updates
-          itself. Big files upload slowly — shrink first (see{" "}
+          Upload always writes the file locally right away — quality analysis
+          (Whisper / face detect, possibly on your GPU worker) runs afterwards
+          in the background; the row starts <b>PENDING</b> and updates itself.
+          Big files upload slowly on a weak connection — try a small file (a
+          few MB) first, or shrink first (see{" "}
           <span className="mono">worker/colab/RUN_ON_COLAB.md</span>).
         </p>
+
+        {uploads.length > 0 ? (
+          <div className="stack" style={{ marginTop: 12 }}>
+            {uploads.map((u) => (
+              <div key={u.name}>
+                <div className="between" style={{ fontSize: 12.5 }}>
+                  <span>{u.name} <span className="muted">· {(u.bytes / 1024 / 1024).toFixed(1)} MB</span></span>
+                  <span className={u.pct === -1 ? "form-error" : "muted"} style={{ margin: 0 }}>
+                    {u.pct === -1 ? "failed" : u.pct === 100 ? "done" : `${u.pct}%`}
+                  </span>
+                </div>
+                <div style={{ height: 6, borderRadius: 4, background: "var(--panel-2)", overflow: "hidden", marginTop: 4 }}>
+                  <div
+                    style={{
+                      height: "100%",
+                      width: `${u.pct === -1 ? 100 : u.pct}%`,
+                      background: u.pct === -1 ? "var(--danger)" : "var(--accent)",
+                      transition: "width .2s",
+                    }}
+                  />
+                </div>
+                {u.error ? <p className="form-error" style={{ fontSize: 12, margin: "4px 0 0" }}>{u.error}</p> : null}
+              </div>
+            ))}
+          </div>
+        ) : null}
       </div>
 
       <div className="card">
