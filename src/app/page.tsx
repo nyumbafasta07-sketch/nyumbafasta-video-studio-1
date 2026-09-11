@@ -38,8 +38,18 @@ export default function Dashboard() {
       }
     >
       <div className="notice">
-        <b>Phase 2 — mock pipeline.</b> Voice, avatar and lip-sync are placeholder
-        output until real models are connected in <Link href="/settings">Settings → Compute</Link>.
+        {rc.gpuProvider === "local-mock" ? (
+          <>
+            <b>Mock mode.</b> Voice, avatar and lip-sync are placeholder output until a real
+            GPU worker is connected in <Link href="/settings">Settings → Compute</Link>.
+          </>
+        ) : (
+          <>
+            <b>Real GPU worker active.</b> Any profile (voice / face / lipsync) with a
+            PROMOTED model in <Link href="/training">Training Studio</Link> renders for real;
+            anything not yet trained still falls back to placeholder output.
+          </>
+        )}
       </div>
 
       <div className="grid">

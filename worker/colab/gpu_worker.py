@@ -514,6 +514,23 @@ def _profile_dir(model_ref: str) -> pathlib.Path:
     return d
 
 
+def _driving_clip_for(identity_dir: pathlib.Path, perf_ref: str) -> pathlib.Path | None:
+    """A face_identity profile has no driving clip of its own (_train_face
+    only extracts one for face_performance/lipsync). If the app trained
+    face_performance/lipsync SEPARATELY from face_identity, prefer that
+    profile's driving.mp4 — falling back to the identity profile's own
+    (present when it WAS trained as face_performance/lipsync directly)."""
+    if perf_ref:
+        try:
+            perf_drv = _profile_dir(perf_ref) / "driving.mp4"
+            if perf_drv.exists():
+                return perf_drv
+        except ValueError:
+            pass
+    own_drv = identity_dir / "driving.mp4"
+    return own_drv if own_drv.exists() else None
+
+
 def _audio_for(script_text: str) -> pathlib.Path:
     """F5-TTS synth with the latest trained voice if there is one, else a mock tone."""
     models = sorted((WORK / "models").glob("voice-*.f5.json"))
@@ -546,8 +563,8 @@ def do_evaluate(payload: dict, _set_stage=None):
                            "check identity, skin, lighting (§4)", "kind": "EXPERIMENTAL"}}, \
                ref.read_bytes(), "image/png"
     audio = _audio_for(str(payload.get("scriptText", "")))
-    drv = d / "driving.mp4"
-    video = _talking_head(ref, audio, drv if drv.exists() else None)
+    drv = _driving_clip_for(d, str(payload.get("perfRef") or ""))
+    video = _talking_head(ref, audio, drv)
     return {"result": {"scores": {}, "note": "watch: identity held? mouth matches Swahili? "
                        "believable as a real recording? (§4)", "kind": "EXPERIMENTAL"}}, \
            video, "video/mp4"
@@ -619,8 +636,8 @@ def do_lipsync(payload: dict, _set_stage=None):
     if ref_model:
         # real talking-head: your trained face + this audio (SadTalker / LivePortrait)
         d = _profile_dir(ref_model)
-        drv = d / "driving.mp4"
-        video = _talking_head(d / "reference.png", ap, drv if drv.exists() else None)
+        drv = _driving_clip_for(d, str(payload.get("perfRef") or ""))
+        video = _talking_head(d / "reference.png", ap, drv)
         ap.unlink(missing_ok=True)
         return video, "video/mp4", {"modelRef": ref_model, "real": True, "faceModel": FACE_MODEL}
 

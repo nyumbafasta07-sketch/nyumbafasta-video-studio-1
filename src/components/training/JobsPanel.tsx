@@ -87,7 +87,7 @@ export function JobsPanel({ initialProfile }: { initialProfile?: string }) {
           </div>
           <div>
             <label htmlFor="tb">Base model (optional)</label>
-            <input id="tb" type="text" value={baseModel} onChange={(e) => setBaseModel(e.target.value)} placeholder="e.g. piper/en_US-lessac-medium" />
+            <input id="tb" type="text" value={baseModel} onChange={(e) => setBaseModel(e.target.value)} placeholder="e.g. f5-tts/F5TTS_v1_Base" />
           </div>
         </div>
         <button onClick={start} disabled={busy || !datasetId} style={{ marginTop: 14 }}>
