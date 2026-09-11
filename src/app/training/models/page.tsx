@@ -14,9 +14,7 @@ export default function TrainingModelsPage({ searchParams }: { searchParams: { v
       title="Training · Model versions"
       subtitle="Evaluate, compare, and promote. Founder is the final approver (§8.5)."
     >
-      <p>
-        <Link href="/training">← Training Studio</Link>
-      </p>
+      <p className="page-lead"><Link href="/training">← Training Studio</Link></p>
       <ModelsPanel initialVersionId={searchParams.v} />
     </Shell>
   );

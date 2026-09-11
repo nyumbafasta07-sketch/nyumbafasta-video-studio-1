@@ -20,11 +20,15 @@ export default function ProjectDetail({ params }: { params: { id: string } }) {
   const avatars = listAvatars().map((a) => ({ id: a.id, label: a.label, status: a.status }));
 
   return (
-    <Shell active="/projects" title={project.name} subtitle={`Project ${project.id}`}>
-      <div className="row" style={{ justifyContent: "space-between" }}>
-        <Link href="/projects">← all projects</Link>
-        <DeleteProjectButton projectId={project.id} name={project.name} redirectTo="/projects" />
-      </div>
+    <Shell
+      active="/projects"
+      title={project.name}
+      subtitle={`Project · ${new Date(project.created_at).toLocaleDateString()}`}
+      actions={<DeleteProjectButton projectId={project.id} name={project.name} redirectTo="/projects" />}
+    >
+      <p className="page-lead">
+        <Link href="/projects">← All projects</Link>
+      </p>
       <ProjectWorkspace
         projectId={project.id}
         initialScript={project.script_text}

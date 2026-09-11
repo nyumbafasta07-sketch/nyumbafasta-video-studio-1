@@ -2,8 +2,7 @@
 
 import { useRef, useState } from "react";
 
-/** §5 step 1: optional .txt/.md/.docx upload. Passes the extracted text to the
- * parent, which decides whether to replace or append. */
+/** §5 step 1: optional .txt/.md/.docx upload. Passes extracted text to the parent. */
 export function ScriptFileInput({ onText }: { onText: (text: string) => void }) {
   const ref = useRef<HTMLInputElement>(null);
   const [busy, setBusy] = useState(false);
@@ -31,16 +30,9 @@ export function ScriptFileInput({ onText }: { onText: (text: string) => void }) 
 
   return (
     <div className="row" style={{ marginTop: 8 }}>
-      <input
-        ref={ref}
-        type="file"
-        accept=".txt,.md,.docx"
-        onChange={pick}
-        disabled={busy}
-        style={{ fontSize: 13 }}
-      />
+      <input ref={ref} type="file" accept=".txt,.md,.docx" onChange={pick} disabled={busy} />
       {busy ? <span className="muted">reading…</span> : null}
-      {msg ? <span className="muted">{msg}</span> : null}
+      {msg ? <span className="muted" style={{ fontSize: 12 }}>{msg}</span> : null}
     </div>
   );
 }

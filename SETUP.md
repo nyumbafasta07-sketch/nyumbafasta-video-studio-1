@@ -31,6 +31,28 @@ npm run dev        # http://localhost:3000
 npm run build && npm run start
 ```
 
+### GitHub Codespace (stable private URL)
+
+Running the app in a Codespace gives a **fixed private URL** that does not
+change for the life of that Codespace:
+
+```
+https://<CODESPACE_NAME>-3000.app.github.dev
+```
+
+It is GitHub-auth gated (only you can open it) — this is *not* a public
+deployment, it is the app running on your machine-in-the-cloud (brief §3).
+
+`.devcontainer/` auto-runs `npm run dev` every time the Codespace starts, so the
+URL "just works" when you open the Codespace. One-time setup: `.env` is created
+for you with a random `SESSION_SECRET`; set your password once —
+`npm run hash-password -- "your-password"`, paste the line into `.env`, then
+restart the server (`bash .devcontainer/start.sh` or re-open the Codespace).
+
+The Codespace stops after ~30 min idle and resumes when you open it; the URL is
+the same each time. There is deliberately no public/hosted URL — see
+`FUTURE_FEATURES.md`.
+
 Log in with the password you hashed. Everything else (mock voice, avatar,
 lip-sync, MP4 render) works with zero extra setup.
 

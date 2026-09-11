@@ -2,6 +2,8 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { Icon } from "./Icons";
+import { confirmDialog, toast } from "./ui/feedback";
 
 export function DeleteProjectButton({
   projectId,
@@ -18,35 +20,35 @@ export function DeleteProjectButton({
   const [busy, setBusy] = useState(false);
 
   async function del() {
-    if (!confirm(`Delete "${name}" and all its jobs and files? This cannot be undone.`)) {
-      return;
-    }
+    const ok = await confirmDialog({
+      title: `Delete “${name}”?`,
+      body: "All its jobs and generated files are removed. This cannot be undone.",
+      confirmText: "Delete",
+      danger: true,
+    });
+    if (!ok) return;
     setBusy(true);
     const res = await fetch(`/api/projects/${projectId}`, { method: "DELETE" });
     setBusy(false);
     if (res.ok) {
+      toast("Project deleted", "ok");
       if (redirectTo) router.push(redirectTo);
       else router.refresh();
     } else {
-      alert("Could not delete the project.");
+      toast("Could not delete the project.", "err");
     }
   }
 
   if (compact) {
     return (
-      <button
-        onClick={del}
-        disabled={busy}
-        className="secondary"
-        style={{ padding: "4px 10px", fontSize: 12 }}
-      >
-        {busy ? "…" : "delete"}
+      <button onClick={del} disabled={busy} className="icon-btn" title="Delete project">
+        <Icon.trash />
       </button>
     );
   }
   return (
-    <button onClick={del} disabled={busy} className="secondary" style={{ color: "var(--danger)" }}>
-      {busy ? "Deleting…" : "Delete project"}
+    <button onClick={del} disabled={busy} className="secondary danger">
+      <Icon.trash /> {busy ? "Deleting…" : "Delete project"}
     </button>
   );
 }

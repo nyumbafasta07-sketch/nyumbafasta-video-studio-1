@@ -8,6 +8,9 @@ const LABELS: Record<string, string> = {
   preprocessing: "Preprocess",
   transcribing: "Transcribe",
   building_dataset: "Build dataset",
+  extracting_frames: "Extract frames",
+  building_profile: "Build profile",
+  extracting_driving_clip: "Driving clip",
   training: "Train",
   evaluating: "Evaluate",
 };
@@ -22,7 +25,6 @@ interface Payload {
     profile: string;
     level: number;
     state: string;
-    base_model: string;
     error: string | null;
     result_version_id: string | null;
   };
@@ -61,21 +63,22 @@ export function TrainingJobProgress({ jobId, onDone }: { jobId: string; onDone?:
     };
   }, [jobId, onDone]);
 
-  if (!data) return <p className="muted">loading job…</p>;
+  if (!data) return <div className="card"><div className="skeleton" style={{ height: 110 }} /></div>;
   const { job, stages, version } = data;
   const cls = job.state === "COMPLETED" ? "completed" : job.state === "FAILED" ? "failed" : "state";
 
   return (
     <div className="card">
-      <div className="row" style={{ justifyContent: "space-between" }}>
-        <div>
-          <span className={`badge ${cls}`}>{job.state}</span>{" "}
-          <b>{job.profile}</b> <span className="muted">L{job.level}</span>{" "}
-          <span className="mono muted">{job.id}</span>
+      <div className="between">
+        <div className="row">
+          <span className={`badge ${cls}`}>{job.state}</span>
+          <b>{job.profile}</b>
+          <span className="muted">L{job.level}</span>
+          <span className="mono muted">{job.id.slice(0, 14)}…</span>
         </div>
         {!TERMINAL.has(job.state) ? (
           <button
-            className="secondary"
+            className="secondary sm"
             disabled={acting}
             onClick={async () => {
               setActing(true);
@@ -91,11 +94,11 @@ export function TrainingJobProgress({ jobId, onDone }: { jobId: string; onDone?:
       <ul className="stage-list" style={{ marginTop: 12 }}>
         {stages.map((s) => (
           <li key={s.key}>
-            <span>
+            <span className="name">
               <span className={`dot ${s.progress.status}`} />
               {LABELS[s.key] ?? s.key}
             </span>
-            <span className="muted">
+            <span className="muted" style={{ fontSize: 12 }}>
               {s.progress.status}
               {s.progress.error ? ` — ${s.progress.error}` : ""}
             </span>
@@ -103,18 +106,13 @@ export function TrainingJobProgress({ jobId, onDone }: { jobId: string; onDone?:
         ))}
       </ul>
 
-      {job.state === "FAILED" && job.error ? (
-        <p style={{ color: "var(--danger)", fontSize: 13 }}>Failed: {job.error}</p>
-      ) : null}
+      {job.state === "FAILED" && job.error ? <p className="form-error">Failed: {job.error}</p> : null}
 
       {version ? (
-        <p style={{ marginBottom: 0 }}>
-          Created{" "}
-          <Link href={`/training/models?v=${version.id}`}>
-            <b>{version.label}</b>
-          </Link>{" "}
-          — aggregate {version.eval_score?.toFixed(1) ?? "—"}/10 ·{" "}
-          <span className="badge mock">EXPERIMENTAL</span> until you approve it.
+        <p style={{ marginBottom: 0, marginTop: 12 }}>
+          Created <Link href={`/training/models?v=${version.id}`}><b>{version.label}</b></Link> —
+          aggregate {version.eval_score?.toFixed(1) ?? "—"}/10 ·{" "}
+          <span className="badge experimental">experimental</span> until you approve it.
         </p>
       ) : null}
     </div>

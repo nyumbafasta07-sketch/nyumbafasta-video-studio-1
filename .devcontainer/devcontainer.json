@@ -1,0 +1,22 @@
+{
+  "name": "NyumbaFasta Video Studio",
+  "image": "mcr.microsoft.com/devcontainers/javascript-node:22",
+  "features": {
+    "ghcr.io/devcontainers/features/python:1": { "version": "3.11" }
+  },
+  "forwardPorts": [3000],
+  "portsAttributes": {
+    "3000": {
+      "label": "Video Studio",
+      "onAutoForward": "openBrowserOnce",
+      "visibility": "private"
+    }
+  },
+  "postCreateCommand": "npm install",
+  "postStartCommand": "bash .devcontainer/start.sh",
+  "customizations": {
+    "vscode": {
+      "extensions": ["dbaeumer.vscode-eslint", "esbenp.prettier-vscode"]
+    }
+  }
+}

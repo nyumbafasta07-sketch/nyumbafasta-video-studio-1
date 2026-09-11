@@ -14,9 +14,7 @@ export default function TrainingJobsPage({
   bootstrap();
   return (
     <Shell active="/training" title="Training · Jobs">
-      <p>
-        <Link href="/training">← Training Studio</Link>
-      </p>
+      <p className="page-lead"><Link href="/training">← Training Studio</Link></p>
       <JobsPanel initialProfile={searchParams.profile} />
     </Shell>
   );
