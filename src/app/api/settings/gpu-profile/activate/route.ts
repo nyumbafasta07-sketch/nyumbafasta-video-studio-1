@@ -6,7 +6,7 @@ import { activateGpuProfile, redactedRuntimeConfig, type GpuProfileName } from "
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-const Body = z.object({ name: z.enum(["colab", "kaggle"]) });
+const Body = z.object({ name: z.enum(["colab", "kaggle", "local"]) });
 
 /** Switch the active GPU/training worker to a previously-saved profile —
  * copies its stored URL/token into the single active fields everything else

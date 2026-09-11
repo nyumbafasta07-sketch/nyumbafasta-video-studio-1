@@ -85,12 +85,12 @@ export function redactedRuntimeConfig() {
  * Activating a profile just copies its url/token into the single active
  * gpuWorkerUrl/gpuWorkerToken fields everything else already reads.
  */
-export type GpuProfileName = "colab" | "kaggle";
+export type GpuProfileName = "colab" | "kaggle" | "local";
 export interface GpuProfile {
   url: string;
   token: string;
 }
-const PROFILE_NAMES: GpuProfileName[] = ["colab", "kaggle"];
+const PROFILE_NAMES: GpuProfileName[] = ["colab", "kaggle", "local"];
 
 function readProfiles(): Record<GpuProfileName, GpuProfile> {
   const raw = getSetting(KEYS.gpuProfiles);

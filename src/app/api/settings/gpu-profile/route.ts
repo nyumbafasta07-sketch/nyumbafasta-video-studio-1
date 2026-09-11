@@ -7,7 +7,7 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 const Body = z.object({
-  name: z.enum(["colab", "kaggle"]),
+  name: z.enum(["colab", "kaggle", "local"]),
   url: z.string().max(500).optional(),
   token: z.string().max(500).optional(), // "" / omitted = leave unchanged
 });

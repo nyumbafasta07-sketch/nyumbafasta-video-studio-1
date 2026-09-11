@@ -4,7 +4,9 @@ import { useEffect, useState } from "react";
 import { Icon } from "./Icons";
 import { toast } from "./ui/feedback";
 
-type ProfileName = "colab" | "kaggle";
+type ProfileName = "colab" | "kaggle" | "local";
+const PROFILE_LABELS: Record<ProfileName, string> = { colab: "Colab", kaggle: "Kaggle", local: "Local" };
+const PROFILE_ORDER: ProfileName[] = ["colab", "kaggle", "local"];
 interface Cfg {
   gpuProvider: "local-mock" | "http";
   gpuWorkerUrl: string;
@@ -31,8 +33,8 @@ export function SettingsForm() {
   const [owner, setOwner] = useState("");
   const [test, setTest] = useState<{ ok?: boolean; msg: string } | null>(null);
   const [busy, setBusy] = useState(false);
-  const [profileUrl, setProfileUrl] = useState<Record<ProfileName, string>>({ colab: "", kaggle: "" });
-  const [profileToken, setProfileToken] = useState<Record<ProfileName, string>>({ colab: "", kaggle: "" });
+  const [profileUrl, setProfileUrl] = useState<Record<ProfileName, string>>({ colab: "", kaggle: "", local: "" });
+  const [profileToken, setProfileToken] = useState<Record<ProfileName, string>>({ colab: "", kaggle: "", local: "" });
   const [profileBusy, setProfileBusy] = useState<ProfileName | null>(null);
 
   async function load() {
@@ -44,7 +46,11 @@ export function SettingsForm() {
     setTrainingProvider(data.config.trainingProvider);
     setUrl(data.config.gpuWorkerUrl);
     setOwner(data.ownerLabel);
-    setProfileUrl({ colab: data.config.gpuProfiles.colab.url, kaggle: data.config.gpuProfiles.kaggle.url });
+    setProfileUrl({
+      colab: data.config.gpuProfiles.colab.url,
+      kaggle: data.config.gpuProfiles.kaggle.url,
+      local: data.config.gpuProfiles.local.url,
+    });
   }
   useEffect(() => {
     load();
@@ -62,7 +68,7 @@ export function SettingsForm() {
     setProfileBusy(null);
     if (r.ok) {
       setProfileToken((t) => ({ ...t, [name]: "" }));
-      toast(`${name === "colab" ? "Colab" : "Kaggle"} saved`, "ok");
+      toast(`${PROFILE_LABELS[name]} saved`, "ok");
       load();
     } else {
       const b = await r.json().catch(() => ({}));
@@ -79,7 +85,7 @@ export function SettingsForm() {
     });
     setProfileBusy(null);
     if (r.ok) {
-      toast(`${name === "colab" ? "Colab" : "Kaggle"} imewashwa — inatumika sasa`, "ok");
+      toast(`${PROFILE_LABELS[name]} imewashwa — inatumika sasa`, "ok");
       load();
     } else {
       const b = await r.json().catch(() => ({}));
@@ -130,11 +136,12 @@ export function SettingsForm() {
         <h3>Compute profiles</h3>
         <p className="page-lead">
           Save a URL + token for each worker once, then switch the active one with one button —
-          handy when Colab hits its free-tier GPU limit and you flip to Kaggle (or back), with no re-pasting.
+          handy when Colab hits its free-tier GPU limit, Kaggle is unavailable, or you'd rather use
+          your own machine. "Local" is your own device (needs an NVIDIA GPU for real speed).
         </p>
-        <div className="grid" style={{ gridTemplateColumns: "1fr 1fr", gap: 16 }}>
-          {(["colab", "kaggle"] as ProfileName[]).map((name) => {
-            const label = name === "colab" ? "Colab" : "Kaggle";
+        <div className="grid" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 16 }}>
+          {PROFILE_ORDER.map((name) => {
+            const label = PROFILE_LABELS[name];
             const saved = p.config.gpuProfiles[name];
             const isActive = p.config.activeGpuProfile === name;
             return (
