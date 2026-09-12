@@ -1,14 +1,22 @@
 """
 Colab-safe replacement for F5-TTS's own finetune_cli.py.
 
-Identical to the stock script EXCEPT: adds --num_workers (default 2) and
+Identical to the stock script EXCEPT: adds --num_workers (default 0) and
 threads it through to Trainer.train(). The stock script hardcodes
 num_workers=16 as Trainer.train()'s Python default (no CLI flag exists for
-it) — on free Colab's 2 vCPUs that spawns 16 persistent DataLoader worker
-processes, which starves/OOMs the whole worker process. Symptom seen live:
-gpu_worker.py died silently mid-"training" after ~38 minutes with zero
-checkpoints (tunnel reconnected fine, but "connection refused" on :8800 —
-the Python process itself was gone, consistent with an OOM kill).
+it). Two confirmed-live OOM kills so far, both via dmesg's
+"Memory cgroup out of memory" / oom-kill on this same worker process:
+  1. num_workers=16 (the stock default) — too many DataLoader workers for
+     free Colab, ~38min to OOM.
+  2. num_workers=2 (first fix) — STILL OOM'd, ~2min in, right after saving
+     a checkpoint at update 100. Root cause: DataLoader workers are forked
+     AFTER the main process has already loaded torch + CUDA context + the
+     model, so each forked worker's copy-on-write pages get touched by
+     Python's refcounting and become private dirty memory — ~2.3GB RSS per
+     worker observed in dmesg, not proportional to the (tiny) dataset.
+num_workers=0 avoids forking DataLoader workers entirely (main-process-only
+loading), which removes this class of duplication outright — the dataset
+here is small enough that it costs little throughput.
 """
 import argparse
 import os
@@ -84,7 +92,7 @@ def parse_args():
         help="Use 8-bit Adam optimizer from bitsandbytes",
     )
     parser.add_argument(
-        "--num_workers", type=int, default=2,
+        "--num_workers", type=int, default=0,
         help="DataLoader worker processes (stock script hardcodes 16 — too many for free Colab)",
     )
 

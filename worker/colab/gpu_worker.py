@@ -244,10 +244,15 @@ def _train_voice(payload: dict, set_stage=None):
     # default to 50000/5000, which a tiny dataset may NEVER reach, silently
     # producing no checkpoint at all. Keep both low so at least one save fires.
     epochs = int(os.environ.get("F5_EPOCHS", "100"))
-    bs = int(os.environ.get("F5_BATCH_SIZE", "2000"))  # frames/gpu — conservative for a T4
+    bs = int(os.environ.get("F5_BATCH_SIZE", "1400"))  # frames/gpu — conservative for a T4
     save_every = int(os.environ.get("F5_SAVE_EVERY", "50"))
     lr = os.environ.get("F5_LR", "1e-5")
-    workers = int(os.environ.get("F5_NUM_WORKERS", "2"))  # F5-TTS's own script hardcodes 16 — OOMs free Colab
+    # 0 = no forked DataLoader worker processes. F5-TTS's stock script
+    # hardcodes 16 (OOMs free Colab); even 2 still OOM'd live (confirmed via
+    # dmesg) because forking AFTER the main process has loaded torch/CUDA/the
+    # model makes each fork's copy-on-write pages balloon into private dirty
+    # memory (~2.3GB/worker observed) — unrelated to dataset size.
+    workers = int(os.environ.get("F5_NUM_WORKERS", "0"))
     driver = os.environ.get("F5_FINETUNE_DRIVER", "/content/f5_finetune_driver.py")
     if not pathlib.Path(driver).exists():
         raise ValueError(f"F5 finetune driver not found at {driver} — re-run the notebook's writefile cell")
