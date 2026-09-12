@@ -29,6 +29,28 @@ from f5_tts.model import CFM, DiT, Trainer, UNetT
 from f5_tts.model.dataset import load_dataset
 from f5_tts.model.utils import get_tokenizer
 
+# Trainer.train() hardcodes persistent_workers=True on its DataLoader, which
+# PyTorch refuses to combine with num_workers=0 ("persistent_workers option
+# needs num_workers > 0") — confirmed live: exactly this ValueError killed a
+# 0-worker attempt outright. Patch the DataLoader trainer.py actually calls
+# (its own module-level import, not torch.utils.data's — patching that would
+# be too late, trainer.py already bound the name at its own import time) so
+# num_workers=0 forces persistent_workers off instead of erroring.
+import f5_tts.model.trainer as _f5trainer  # noqa: E402
+
+_StockDataLoader = _f5trainer.DataLoader
+
+
+class _SafeDataLoader(_StockDataLoader):
+    def __init__(self, *args, **kwargs):
+        if kwargs.get("num_workers", 0) == 0:
+            kwargs["persistent_workers"] = False
+            kwargs.pop("prefetch_factor", None)  # also invalid with num_workers=0
+        super().__init__(*args, **kwargs)
+
+
+_f5trainer.DataLoader = _SafeDataLoader
+
 
 # -------------------------- Dataset Settings --------------------------- #
 target_sample_rate = 24000
