@@ -28,6 +28,31 @@ describe("provider interfaces (mock impls)", () => {
     expect(empty.warnings).toContain("Script is empty.");
   });
 
+  it("ScriptProvider reshapes toward the founder's speaking-style profile once one is PRODUCTION", async () => {
+    const { createVersion, setVersionStatus } = await import("@/lib/training/repo");
+    const v = createVersion({
+      profile: "speaking_style",
+      baseModel: "rule-based speaking-style analysis",
+      datasetId: null,
+      trainingJobId: null,
+      evalScore: 7,
+      evalJson: {},
+      license: "n/a",
+      gpuUsed: "cpu-only",
+      config: { modelRef: "style-abc123", styleProfile: { avg_sentence_words: 5 } },
+    });
+    setVersionStatus(v.id, "approved");
+    setVersionStatus(v.id, "production");
+
+    const sp = getScriptProvider();
+    const long =
+      "Karibu sana kwenye video hii ambapo tutajadili kwa kina jinsi ya kutumia mfumo mpya wa NyumbaFasta.";
+    const out = await sp.analyze({ text: long });
+    expect(out.kind).toBe("EXPERIMENTAL");
+    expect(out.normalizedText).not.toBe(long); // reshaped into ~5-word sentences
+    expect(out.meta.styledToFounderPace).toBe(true);
+  });
+
   it("GPUProvider local-mock reports available and produces MOCK artifacts", async () => {
     const gpu = getGpu();
     expect(gpu.name).toBe("local-mock");

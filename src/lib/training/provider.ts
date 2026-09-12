@@ -36,6 +36,10 @@ export interface TrainResult {
   kind: "MOCK" | "EXPERIMENTAL" | "PRODUCTION";
   /** worker-side handle for the trained model, stored on the version's config */
   modelRef?: string;
+  /** speaking_style only — small enough to carry inline rather than as a
+   * worker-side file the app would need to fetch separately (brief §8.3:
+   * sentence length, wpm, pause/opener/closer patterns, no neural model). */
+  styleProfile?: Record<string, unknown>;
 }
 
 export interface EvalResult {

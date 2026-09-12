@@ -41,6 +41,7 @@ has GPU access right now:
 | &nbsp;&nbsp;`face_identity` | Training → Jobs | scans your video, picks the **best real front-facing reference frame** (+ alternates), scores identity consistency. NOT a cartoon — a frame of you. |
 | &nbsp;&nbsp;`face_performance` | Training → Jobs | pulls a short natural talking clip (blinks, head motion) for expression transfer |
 | &nbsp;&nbsp;`lipsync` | Training → Jobs | prepares your face for the talking-head model (SadTalker / LivePortrait) |
+| &nbsp;&nbsp;`speaking_style` | Training → Jobs | analyzes your own transcripts (sentence length, wpm, opener/closer phrasing) — no GPU/neural model, brief §8.3. Applied automatically to new scripts once promoted. |
 | Evaluate | automatic after each train | voice → 6 synthesised Swahili clips; face → the reference frame; performance/lipsync → a short **talking-head video** on the fixed scripts |
 | Watch + Promote | Training → Models | judge each against §4; **Promote to PRODUCTION** |
 | Create Video | Create Video | your voice + your face + real lip-sync |
@@ -63,7 +64,10 @@ them on the Models page.
   bet — first full run hasn't completed yet, blocked on reliable GPU access).
 - **`evalScore`** from the worker is a rough proxy. The real judgement is you
   watching / listening to the eval clips on the Models page.
-- **`speaking_style`** training is not implemented (Phase 6).
+- **`speaking_style`** is rule-based statistics (sentence length, pace,
+  opener/closer phrasing), not a generative rewrite — deliberately kept
+  simple (no paid LLM API wired in); "new script -> founder-like delivery"
+  means reshaped sentence rhythm, not AI-generated new wording.
 
 ## Getting videos to the worker
 

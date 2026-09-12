@@ -147,6 +147,7 @@ export class WorkerTrainingProvider implements TrainingProvider {
       license: String(r.license ?? ""),
       kind: (r.kind as TrainResult["kind"]) ?? "EXPERIMENTAL",
       modelRef: r.modelRef ? String(r.modelRef) : undefined,
+      styleProfile: r.styleProfile ? (r.styleProfile as Record<string, unknown>) : undefined,
     };
   }
 

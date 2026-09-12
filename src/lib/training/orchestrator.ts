@@ -164,7 +164,11 @@ async function run(jobId: string): Promise<TrainingJob> {
     evalJson: { breakdown: result.evalBreakdown, kind: result.kind },
     license: result.license,
     gpuUsed: result.gpuUsed,
-    config: { ...job.config, modelRef: result.modelRef ?? "" },
+    config: {
+      ...job.config,
+      modelRef: result.modelRef ?? "",
+      ...(result.styleProfile ? { styleProfile: result.styleProfile } : {}),
+    },
   });
 
   // Persist the trained model centrally so switching GPU workers later

@@ -185,10 +185,102 @@ def do_train(payload: dict, set_stage=None):
     if profile in ("face_identity", "face_performance", "lipsync"):
         return _train_face(payload, set_stage)
     if profile == "speaking_style":
-        raise ValueError("speaking_style training not implemented in gpu_worker (Phase 6)")
+        return _train_speaking_style(payload, set_stage)
     if profile != "voice":
         raise ValueError(f"unknown profile {profile!r}")
     return _train_voice(payload, set_stage)
+
+
+# --------------------------------------------------------------------------- #
+#  speaking_style — sentence length / pace / pauses / intro-CTA patterns.     #
+#  Deliberately NOT a neural model: brief §8.3 asks for pattern statistics    #
+#  (sentence length, wpm, pause frequency, opener/closer phrasing), not a     #
+#  generative model, and this needs no GPU at all — just the transcripts     #
+#  ingest() already produced. Applied at generation time as rule-based text  #
+#  reshaping (app side, MockScriptProvider) — no extra paid API required.    #
+# --------------------------------------------------------------------------- #
+
+_SWAHILI_FILLERS = ["yaani", "kwa hiyo", "basi", "sasa", "kwanza", "halafu", "au", "sawa", "eeh"]
+
+
+def _train_speaking_style(payload: dict, set_stage=None):
+    dref = str(payload.get("datasetRef") or "")
+    ddir = WORK / "datasets" / dref
+    if not (ddir / "metadata.csv").exists():
+        raise ValueError("dataset not on this worker — rebuild the dataset against this worker")
+
+    if set_stage:
+        set_stage("analyzing")
+
+    sentence_lens: list[int] = []
+    wpm_samples: list[tuple[int, float]] = []  # (words, seconds)
+    openers: list[str] = []
+    closers: list[str] = []
+    filler_counts = {f: 0 for f in _SWAHILI_FILLERS}
+
+    for line in (ddir / "metadata.csv").read_text(encoding="utf-8").splitlines():
+        if "|" not in line:
+            continue
+        cid, text = line.split("|", 1)
+        text = text.strip()
+        words = text.split()
+        if not words:
+            continue
+        sentence_lens.append(len(words))
+        wav = ddir / "wavs" / f"{cid}.wav"
+        dur = _wav_seconds(wav) if wav.exists() else 0.0
+        if dur > 0:
+            wpm_samples.append((len(words), dur))
+        openers.append(words[0].lower().strip(".,!?;:"))
+        closers.append(words[-1].lower().strip(".,!?;:"))
+        low = text.lower()
+        for f in _SWAHILI_FILLERS:
+            filler_counts[f] += low.count(f)
+
+    if not sentence_lens:
+        raise ValueError("dataset has no usable transcripts for speaking-style analysis")
+
+    import collections
+    avg_words = sum(sentence_lens) / len(sentence_lens)
+    total_words = sum(w for w, _ in wpm_samples)
+    total_secs = sum(s for _, s in wpm_samples)
+    wpm = (total_words / total_secs * 60) if total_secs > 0 else 0.0
+    opener_common = [w for w, _ in collections.Counter(openers).most_common(5) if w]
+    closer_common = [w for w, _ in collections.Counter(closers).most_common(5) if w]
+    fillers_used = {f: c for f, c in filler_counts.items() if c > 0}
+
+    profile = {
+        "avg_sentence_words": round(avg_words, 1),
+        "words_per_minute": round(wpm, 1) if wpm > 0 else None,
+        "common_openers": opener_common,
+        "common_closers": closer_common,
+        "filler_words": fillers_used,
+        "clips_analyzed": len(sentence_lens),
+    }
+
+    model_ref = f"style-{dref[:8]}-{int(time.time())}"
+    sdir = WORK / "styles" / model_ref
+    sdir.mkdir(parents=True, exist_ok=True)
+    (sdir / "profile.json").write_text(json.dumps(profile, ensure_ascii=False, indent=2))
+
+    # confidence proxy: more analyzed clips = a more trustworthy profile
+    proxy = max(1.0, min(9.0, round(3 + min(6.0, len(sentence_lens) / 5), 1)))
+    return {"result": {"baseModel": "rule-based speaking-style analysis (no GPU/neural model — brief §8.3)",
+                       "modelRef": model_ref, "evalScore": proxy,
+                       "evalBreakdown": {"clips_analyzed": float(len(sentence_lens))},
+                       "gpuUsed": "cpu-only", "license": "n/a",
+                       "kind": "EXPERIMENTAL", "styleProfile": profile}}, None, None
+
+
+def _apply_style(text: str, profile: dict) -> str:
+    """Reshape `text` toward the founder's own sentence-length rhythm."""
+    target = profile.get("avg_sentence_words") or 0
+    words = text.split()
+    if not target or target < 3 or len(words) <= target * 1.3:
+        return text
+    size = max(3, round(target))
+    chunks = [" ".join(words[i:i + size]) for i in range(0, len(words), size)]
+    return ". ".join(c.strip(". ") for c in chunks if c.strip()) + "."
 
 
 def _train_voice(payload: dict, set_stage=None):
@@ -683,7 +775,19 @@ def do_evaluate(payload: dict, _set_stage=None):
                            "kind": "EXPERIMENTAL"}}, data, "audio/wav"
 
     if profile == "speaking_style":
-        return {"result": {"scores": {}, "note": "not implemented"}}, _mock_wav(3, 6), "audio/wav"
+        style_ref = str(payload.get("modelRef") or "")
+        prof_path = WORK / "styles" / style_ref / "profile.json"
+        if not prof_path.exists():
+            raise ValueError(f"speaking-style profile {style_ref} not found on this worker — train it here")
+        style_profile = json.loads(prof_path.read_text())
+        styled_text = _apply_style(str(payload.get("scriptText", "")), style_profile)
+        audio = _audio_for(styled_text)  # your trained voice if promoted, else a mock tone
+        data = audio.read_bytes()
+        audio.unlink(missing_ok=True)
+        return {"result": {"scores": {}, "kind": "EXPERIMENTAL", "styledText": styled_text,
+                           "note": f"reshaped to ~{style_profile.get('avg_sentence_words')} words/sentence, "
+                                   f"~{style_profile.get('words_per_minute')} wpm — listen for natural pacing"}}, \
+               data, "audio/wav"
 
     # face_identity / face_performance / lipsync -> visual preview
     d = _profile_dir(str(payload.get("modelRef") or ""))
