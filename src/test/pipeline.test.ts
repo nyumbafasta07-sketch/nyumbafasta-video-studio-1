@@ -1,7 +1,8 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { freshEnv, type TestEnv } from "./helpers";
-import { createJob, createProject, getOutputAssetForJob, listAssetsForProject } from "@/lib/repo";
+import { createJob, createProject, getJob, getOutputAssetForJob, listAssetsForProject } from "@/lib/repo";
 import { processJob } from "@/lib/pipeline/orchestrator";
+import { enqueue } from "@/lib/pipeline/runner";
 import { getStorage, projectPaths } from "@/lib/storage";
 
 let env: TestEnv;
@@ -86,5 +87,35 @@ describe("end-to-end mock pipeline", () => {
     await processJob(job.id);
     const second = await processJob(job.id);
     expect(second.state).toBe("COMPLETED");
+  });
+});
+
+describe("runner queue (batch generation safety)", () => {
+  it("processes queued jobs one at a time, never concurrently against the same GPU worker", async () => {
+    const p1 = createProject("Batch 1", "Habari. Karibu NyumbaFasta.");
+    const p2 = createProject("Batch 2", "Habari nyingine. Karibu tena.");
+    const j1 = createJob(p1.id, inputs);
+    const j2 = createJob(p2.id, inputs);
+
+    // enqueue both back-to-back, as a batch-create endpoint would
+    enqueue(j1.id);
+    enqueue(j2.id);
+
+    // wait for both to reach a terminal state
+    for (let i = 0; i < 200; i++) {
+      const a = getJob(j1.id)!;
+      const b = getJob(j2.id)!;
+      if (a.state === "COMPLETED" && b.state === "COMPLETED") break;
+      await new Promise((r) => setTimeout(r, 50));
+    }
+
+    const done1 = getJob(j1.id)!;
+    const done2 = getJob(j2.id)!;
+    expect(done1.state).toBe("COMPLETED");
+    expect(done2.state).toBe("COMPLETED");
+    // FIFO + serialized: job2 must not have started before job1 finished
+    expect(new Date(done2.started_at!).getTime()).toBeGreaterThanOrEqual(
+      new Date(done1.ended_at!).getTime(),
+    );
   });
 });
