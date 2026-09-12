@@ -245,9 +245,16 @@ def _train_voice(payload: dict, set_stage=None):
     # than F5-TTS's from-scratch defaults — save_per_updates/last_per_updates
     # default to 50000/5000, which a tiny dataset may NEVER reach, silently
     # producing no checkpoint at all. Keep both low so at least one save fires.
-    epochs = int(os.environ.get("F5_EPOCHS", "100"))
+    #
+    # Confirmed live (2026-09-12): with ~19 clips this dataset does ~10
+    # updates/epoch. epochs=100 + save_every=50 meant 1000 updates and 20
+    # checkpoint-save events (~1.2-2.4GB disk write each, slow on Colab) —
+    # over an hour of wall time, mostly save I/O, not actual training compute.
+    # Lower epochs + less frequent saves cuts that dramatically while still
+    # giving several checkpoints across the run.
+    epochs = int(os.environ.get("F5_EPOCHS", "40"))
     bs = int(os.environ.get("F5_BATCH_SIZE", "1400"))  # frames/gpu — conservative for a T4
-    save_every = int(os.environ.get("F5_SAVE_EVERY", "50"))
+    save_every = int(os.environ.get("F5_SAVE_EVERY", "100"))
     lr = os.environ.get("F5_LR", "1e-5")
     # 0 = no forked DataLoader worker processes. F5-TTS's stock script
     # hardcodes 16 (OOMs free Colab); even 2 still OOM'd live (confirmed via
