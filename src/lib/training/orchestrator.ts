@@ -15,10 +15,30 @@ import {
   updateTrainingJob,
 } from "./repo";
 import { getTrainingProvider } from "./provider";
+import { saveModelBundle } from "./model-bundles";
 import { EVAL_SCRIPTS, TRAINING_NON_TERMINAL, type TrainingJob, type TrainingState } from "./types";
 
-const inFlight = new Set<string>();
-const started = new Set<string>();
+/**
+ * Next.js dev mode re-evaluates a server module (resetting its module-level
+ * state) whenever a file in its dependency chain changes — even an unrelated
+ * one, like a repo.ts helper edited for a different feature. Plain `const
+ * started = new Set()` here would then forget a job it already kicked off,
+ * so the next sweep resubmits `train` to the worker AGAIN while the first
+ * submission is still running — two concurrent fine-tunes fighting over the
+ * same GPU. Confirmed live (2026-09-12): a job's displayed `state` flickered
+ * PREPROCESSING/TRAINING because two run() calls were each polling a
+ * DIFFERENT worker jobId and overwriting the same DB row. Stashing these
+ * Sets on globalThis survives that module re-evaluation (the standard
+ * Next.js dev workaround for this class of bug — same reason Prisma client
+ * singletons use it).
+ */
+const g = globalThis as unknown as {
+  __trainingInFlight?: Set<string>;
+  __trainingStarted?: Set<string>;
+  __trainingLastSweep?: number;
+};
+const inFlight = (g.__trainingInFlight ??= new Set<string>());
+const started = (g.__trainingStarted ??= new Set<string>());
 
 export function enqueueTraining(jobId: string): void {
   if (started.has(jobId)) return;
@@ -30,11 +50,10 @@ export function enqueueTraining(jobId: string): void {
   });
 }
 
-let lastSweep = 0;
 export function sweepTraining(): void {
   const now = Date.now();
-  if (now - lastSweep < 3000) return;
-  lastSweep = now;
+  if (now - (g.__trainingLastSweep ?? 0) < 3000) return;
+  g.__trainingLastSweep = now;
   for (const job of listTrainingJobsByStates(TRAINING_NON_TERMINAL)) {
     if (!started.has(job.id)) enqueueTraining(job.id);
   }
@@ -147,6 +166,21 @@ async function run(jobId: string): Promise<TrainingJob> {
     gpuUsed: result.gpuUsed,
     config: { ...job.config, modelRef: result.modelRef ?? "" },
   });
+
+  // Persist the trained model centrally so switching GPU workers later
+  // doesn't lose it (every worker session is ephemeral — see model-bundles.ts).
+  // Best-effort: a training run that already succeeded shouldn't be marked
+  // FAILED just because the export step had a hiccup.
+  if (job.profile === "voice" && result.modelRef && provider.exportModel) {
+    try {
+      const bundle = await provider.exportModel("voice", result.modelRef);
+      if (bundle) await saveModelBundle("voice", result.modelRef, bundle);
+    } catch (e) {
+      logger.error("model export failed (training itself succeeded)", {
+        jobId: job.id, modelRef: result.modelRef, error: String(e),
+      });
+    }
+  }
 
   // fixed evaluation scripts (§8.5) so there is something to A/B
   mark("evaluating", "running");
