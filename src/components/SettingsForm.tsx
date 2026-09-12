@@ -45,6 +45,7 @@ export function SettingsForm() {
   const [drafts, setDrafts] = useState<Record<string, Draft>>({});
   const [newIds, setNewIds] = useState<string[]>([]);
   const [profileBusy, setProfileBusy] = useState<string | null>(null);
+  const [profileTest, setProfileTest] = useState<Record<string, { ok?: boolean; msg: string }>>({});
 
   async function load() {
     const r = await fetch("/api/settings", { cache: "no-store" });
@@ -131,6 +132,34 @@ export function SettingsForm() {
       const b = await r.json().catch(() => ({}));
       toast(typeof b.error === "string" ? b.error : "Could not delete.", "err");
     }
+  }
+
+  async function testProfile(id: string) {
+    const draft = drafts[id];
+    if (!draft || !p) return;
+    setProfileBusy(id);
+    const isNew = newIds.includes(id);
+    const saved = p.config.gpuProfiles.find((prof) => prof.id === id);
+    const urlChanged = !isNew && !!saved && draft.url !== saved.url;
+    // unedited + no fresh token typed -> test with the stored token server-side
+    // (the token field is blank on load even for a saved profile, by design)
+    const body: Record<string, unknown> =
+      !isNew && !urlChanged && !draft.token
+        ? { profileId: id }
+        : { url: draft.url, token: draft.token || undefined };
+    const r = await fetch("/api/settings/test-gpu", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    const b = await r.json().catch(() => ({}));
+    setProfileBusy(null);
+    setProfileTest((t) => ({
+      ...t,
+      [id]: b.ok
+        ? { ok: true, msg: `OK (${b.status}) ${String(b.detail ?? "").slice(0, 100)}` }
+        : { ok: false, msg: `Failed: ${b.detail ?? r.status}` },
+    }));
   }
 
   async function activateProfile(id: string) {
@@ -250,6 +279,13 @@ export function SettingsForm() {
                     {profileBusy === id ? "…" : "Hifadhi"}
                   </button>
                   <button
+                    className="secondary"
+                    onClick={() => testProfile(id)}
+                    disabled={profileBusy === id || (!draft.url && !saved?.url)}
+                  >
+                    <Icon.spark /> Jaribu
+                  </button>
+                  <button
                     onClick={() => activateProfile(id)}
                     disabled={profileBusy === id || isNew || !saved?.url}
                   >
@@ -264,6 +300,13 @@ export function SettingsForm() {
                     <Icon.trash />
                   </button>
                 </div>
+                {profileTest[id] ? (
+                  <p style={{ marginTop: 8, marginBottom: 0 }}>
+                    <span className={`badge ${profileTest[id].ok === true ? "success" : profileTest[id].ok === false ? "failed" : "plain"}`}>
+                      {profileTest[id].msg}
+                    </span>
+                  </p>
+                ) : null}
               </div>
             );
           })}
