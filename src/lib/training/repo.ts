@@ -219,6 +219,10 @@ export function listTrainingJobs(): TrainingJob[] {
   ).map(rowJob);
 }
 
+export function deleteTrainingJob(id: string): void {
+  getDb().prepare(`DELETE FROM training_jobs WHERE id = ?`).run(id);
+}
+
 export function listTrainingJobsByStates(states: TrainingState[]): TrainingJob[] {
   if (!states.length) return [];
   const q = states.map(() => "?").join(",");

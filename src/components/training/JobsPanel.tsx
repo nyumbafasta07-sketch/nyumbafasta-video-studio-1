@@ -103,7 +103,7 @@ export function JobsPanel({ initialProfile }: { initialProfile?: string }) {
         <div className="card">
           <h3>Recent jobs</h3>
           {recent.map((j) => (
-            <TrainingJobProgress key={j.id} jobId={j.id} />
+            <TrainingJobProgress key={j.id} jobId={j.id} onDeleted={load} />
           ))}
         </div>
       ) : null}

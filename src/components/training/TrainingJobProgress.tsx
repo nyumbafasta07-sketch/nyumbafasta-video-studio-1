@@ -32,7 +32,15 @@ interface Payload {
   version: { id: string; label: string; eval_score: number | null } | null;
 }
 
-export function TrainingJobProgress({ jobId, onDone }: { jobId: string; onDone?: () => void }) {
+export function TrainingJobProgress({
+  jobId,
+  onDone,
+  onDeleted,
+}: {
+  jobId: string;
+  onDone?: () => void;
+  onDeleted?: () => void;
+}) {
   const [data, setData] = useState<Payload | null>(null);
   const [acting, setActing] = useState(false);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -87,6 +95,19 @@ export function TrainingJobProgress({ jobId, onDone }: { jobId: string; onDone?:
             }}
           >
             Cancel
+          </button>
+        ) : onDeleted ? (
+          <button
+            className="secondary sm"
+            disabled={acting}
+            onClick={async () => {
+              setActing(true);
+              const r = await fetch(`/api/training/jobs/${jobId}`, { method: "DELETE" }).catch(() => null);
+              setActing(false);
+              if (r?.ok) onDeleted();
+            }}
+          >
+            Futa
           </button>
         ) : null}
       </div>
