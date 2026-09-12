@@ -32,12 +32,14 @@ from __future__ import annotations
 
 import base64
 import hashlib
+import io
 import json
 import math
 import os
 import pathlib
 import struct
 import subprocess
+import tarfile
 import threading
 import time
 import uuid
@@ -256,6 +258,22 @@ def _train_voice(payload: dict, set_stage=None):
     driver = os.environ.get("F5_FINETUNE_DRIVER", "/content/f5_finetune_driver.py")
     if not pathlib.Path(driver).exists():
         raise ValueError(f"F5 finetune driver not found at {driver} — re-run the notebook's writefile cell")
+
+    # Continue improving an existing voice instead of starting from F5-TTS's
+    # base checkpoint every time — the app passes this when the founder picks
+    # "improve" on an already-trained model (import_model puts its checkpoint
+    # on this worker first if it isn't here already).
+    resume_from = str(payload.get("resumeFromModelRef") or "")
+    extra_args: list[str] = []
+    if resume_from:
+        resume_ptr = WORK / "models" / f"{resume_from}.f5.json"
+        if not resume_ptr.exists():
+            raise ValueError(
+                f"resumeFromModelRef {resume_from!r} not on this worker — import it first"
+            )
+        resume_ckpt = json.loads(resume_ptr.read_text())["ckpt"]
+        extra_args = ["--pretrain", resume_ckpt]
+
     # A long tqdm-heavy training run piped through capture_output=True buffers
     # its ENTIRE stdout/stderr in this process's memory until it exits — over
     # tens of minutes that alone can OOM the worker (killing the HTTP server
@@ -268,8 +286,14 @@ def _train_voice(payload: dict, set_stage=None):
                  "--exp_name", F5_EXP_NAME, "--dataset_name", model_ref, "--finetune",
                  "--tokenizer", F5_TOKENIZER, "--epochs", str(epochs),
                  "--batch_size_per_gpu", str(bs), "--batch_size_type", "frame",
+                 # F5-TTS defaults to -1 (keep every periodic checkpoint
+                 # forever) — with save_per_updates this low, a long run
+                 # fills the disk fast (confirmed live: one run alone left
+                 # a 29GB ckpts/ dir on a free Colab box before this fix).
+                 # 1 = keep only the newest periodic snapshot + model_last.pt.
+                 "--keep_last_n_checkpoints", "1",
                  "--save_per_updates", str(save_every), "--last_per_updates", str(save_every),
-                 "--learning_rate", lr, "--num_workers", str(workers)],
+                 "--learning_rate", lr, "--num_workers", str(workers), *extra_args],
                 check=True, stdout=logf, stderr=subprocess.STDOUT, cwd=F5TTS_REPO_DIR,
             )
     except subprocess.CalledProcessError as exc:
@@ -500,6 +524,101 @@ def _voice_pointer(model_ref: str) -> dict:
     return json.loads(p.read_text())
 
 
+# --------------------------------------------------------------------------- #
+#  export/import model — moves a trained voice between workers/sessions.     #
+#  Every worker session (Colab/Kaggle/local) is ephemeral: its disk vanishes #
+#  when that runtime disconnects, restarts, or you switch to a different     #
+#  compute backend. Without this, every switch meant retraining from zero.   #
+#  The app persists the exported bundle centrally and re-imports it onto     #
+#  whichever worker is active before using/continuing the model there.      #
+# --------------------------------------------------------------------------- #
+
+def do_export_model(payload: dict, _set_stage=None):
+    kind = str(payload.get("kind") or "")
+    model_ref = str(payload.get("modelRef") or "")
+    if kind != "voice":
+        raise ValueError(f"export not implemented for kind {kind!r} yet")
+    ptr = _voice_pointer(model_ref)
+    ckpt = pathlib.Path(ptr["ckpt"])
+    vocab = pathlib.Path(ptr["vocab"])
+    if not ckpt.exists() or not vocab.exists():
+        raise ValueError(f"voice model {model_ref}'s files are missing on this worker")
+    manifest = {"exp_name": ptr.get("exp_name", F5_EXP_NAME), "ref_text": ptr.get("ref_text", "")}
+
+    buf = io.BytesIO()
+    with tarfile.open(fileobj=buf, mode="w:gz") as tar:
+        tar.add(str(ckpt), arcname="model_last.pt")
+        tar.add(str(vocab), arcname="vocab.txt")
+        ref_wav = pathlib.Path(ptr["ref_wav"]) if ptr.get("ref_wav") else None
+        if ref_wav and ref_wav.exists():
+            tar.add(str(ref_wav), arcname="ref.wav")
+        manifest_bytes = json.dumps(manifest).encode()
+        info = tarfile.TarInfo(name="manifest.json")
+        info.size = len(manifest_bytes)
+        tar.addfile(info, io.BytesIO(manifest_bytes))
+    data = buf.getvalue()
+    return {"result": {"modelRef": model_ref, "kind": kind, "bytes": len(data)}}, data, "application/gzip"
+
+
+def do_import_model(payload: dict, _set_stage=None):
+    kind = str(payload.get("kind") or "")
+    model_ref = str(payload.get("modelRef") or "")
+    b64 = payload.get("bundleB64")
+    if kind != "voice":
+        raise ValueError(f"import not implemented for kind {kind!r} yet")
+    if not model_ref or not b64:
+        raise ValueError("import needs modelRef and bundleB64")
+
+    ptr_file = WORK / "models" / f"{model_ref}.f5.json"
+    if ptr_file.exists():
+        return {"result": {"modelRef": model_ref, "already_present": True}}, None, None
+
+    f5_pkg = pathlib.Path(F5TTS_REPO_DIR) / "src" / "f5_tts"
+    if not f5_pkg.is_dir():
+        raise ValueError(
+            f"F5-TTS repo not found at {F5TTS_REPO_DIR} — clone it and `pip install -e .` "
+            "first (see the install cell in gpu_worker.ipynb) before importing a model"
+        )
+
+    data = base64.b64decode(b64)
+    ckpt_dir = pathlib.Path(F5TTS_REPO_DIR) / "ckpts" / model_ref
+    data_dir = pathlib.Path(F5TTS_REPO_DIR) / "data" / f"{model_ref}_{F5_TOKENIZER}"
+    ref_dir = WORK / "models" / f"{model_ref}.ref"
+    ckpt_dir.mkdir(parents=True, exist_ok=True)
+    data_dir.mkdir(parents=True, exist_ok=True)
+    ref_dir.mkdir(parents=True, exist_ok=True)
+
+    manifest: dict = {}
+    ref_wav_path = ""
+    # Extract by exact expected member name only — never a caller-supplied
+    # path — so a crafted archive can't write outside these fixed locations.
+    with tarfile.open(fileobj=io.BytesIO(data), mode="r:gz") as tar:
+        names = set(tar.getnames())
+        if "model_last.pt" in names:
+            with tar.extractfile("model_last.pt") as f:
+                (ckpt_dir / "model_last.pt").write_bytes(f.read())
+        if "vocab.txt" in names:
+            with tar.extractfile("vocab.txt") as f:
+                (data_dir / "vocab.txt").write_bytes(f.read())
+        if "ref.wav" in names:
+            with tar.extractfile("ref.wav") as f:
+                (ref_dir / "ref.wav").write_bytes(f.read())
+            ref_wav_path = str(ref_dir / "ref.wav")
+        if "manifest.json" in names:
+            with tar.extractfile("manifest.json") as f:
+                manifest = json.loads(f.read().decode())
+
+    if not (ckpt_dir / "model_last.pt").exists() or not (data_dir / "vocab.txt").exists():
+        raise ValueError("imported bundle is missing model_last.pt or vocab.txt")
+
+    ptr_file.write_text(json.dumps({
+        "ckpt": str(ckpt_dir / "model_last.pt"), "vocab": str(data_dir / "vocab.txt"),
+        "exp_name": manifest.get("exp_name", F5_EXP_NAME),
+        "ref_wav": ref_wav_path, "ref_text": manifest.get("ref_text", ""),
+    }))
+    return {"result": {"modelRef": model_ref, "imported": True}}, None, None
+
+
 def _f5_synth(model_ref: str, text: str) -> bytes:
     ptr = _voice_pointer(model_ref)
     if not ptr.get("ref_wav"):
@@ -673,7 +792,8 @@ def do_lipsync(payload: dict, _set_stage=None):
 
 BINARY = {"voice": do_voice, "face": do_face, "lipsync": do_lipsync}
 JSON_TASKS = {"ingest": do_ingest, "build_dataset": do_build_dataset,
-              "train": do_train, "evaluate": do_evaluate}
+              "train": do_train, "evaluate": do_evaluate,
+              "export_model": do_export_model, "import_model": do_import_model}
 
 
 def _process(job_id: str, task: dict) -> None:

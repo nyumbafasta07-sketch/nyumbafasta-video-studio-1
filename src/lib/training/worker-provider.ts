@@ -118,6 +118,7 @@ export class WorkerTrainingProvider implements TrainingProvider {
     level: number;
     dataset: Dataset;
     baseModel: string;
+    resumeFromModelRef?: string;
     onStage?: (stage: string) => void;
   }): Promise<TrainResult> {
     const body = await run(
@@ -133,6 +134,7 @@ export class WorkerTrainingProvider implements TrainingProvider {
           frameCount: input.dataset.frame_count,
         },
         baseModel: input.baseModel,
+        resumeFromModelRef: input.resumeFromModelRef ?? "",
       },
       (stage) => input.onStage?.(stage.toUpperCase()),
     );
@@ -182,5 +184,18 @@ export class WorkerTrainingProvider implements TrainingProvider {
       scores: (r.scores as Record<string, number>) ?? {},
       kind: (r.kind as EvalResult["kind"]) ?? "EXPERIMENTAL",
     };
+  }
+
+  async exportModel(kind: string, modelRef: string): Promise<Buffer | undefined> {
+    const body = await run("export_model", { kind, modelRef });
+    if (!body.artifactUrl) return undefined;
+    const { base } = cfg();
+    const a = await fetch(`${base}${body.artifactUrl}`, { headers: headers() });
+    if (!a.ok) return undefined;
+    return Buffer.from(await a.arrayBuffer());
+  }
+
+  async importModel(kind: string, modelRef: string, bundle: Buffer): Promise<void> {
+    await run("import_model", { kind, modelRef, bundleB64: bundle.toString("base64") });
   }
 }

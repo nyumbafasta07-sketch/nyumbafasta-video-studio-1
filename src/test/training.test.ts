@@ -14,10 +14,12 @@ import {
   setVersionStatus,
   listVideos,
 } from "@/lib/training/repo";
-import { getTrainingProvider, _setTrainingProviderForTests } from "@/lib/training/provider";
+import { getTrainingProvider, _setTrainingProviderForTests, MockTrainingProvider } from "@/lib/training/provider";
+import type { TrainingProvider } from "@/lib/training/provider";
 import { runTrainingJob } from "@/lib/training/orchestrator";
 import { getStorage } from "@/lib/storage";
 import { getDb } from "@/lib/db";
+import { loadModelBundle } from "@/lib/training/model-bundles";
 
 let env: TestEnv;
 beforeEach(() => {
@@ -133,6 +135,50 @@ describe("training orchestrator (end-to-end mock)", () => {
     expect(await storage.exists(evals[0].output_path!)).toBe(true);
 
     expect(listVersions("voice")).toHaveLength(1);
+  });
+
+  it("exports and persists a voice model bundle centrally after a successful train", async () => {
+    class FakeWorker extends MockTrainingProvider implements TrainingProvider {
+      exportCalls: string[] = [];
+      async train(input: Parameters<TrainingProvider["train"]>[0]) {
+        const r = await super.train(input);
+        return { ...r, modelRef: "voice-fake-123" };
+      }
+      async exportModel(kind: string, modelRef: string) {
+        this.exportCalls.push(`${kind}:${modelRef}`);
+        return Buffer.from("fake-checkpoint-bytes");
+      }
+    }
+    const fake = new FakeWorker();
+    _setTrainingProviderForTests(fake);
+
+    const ds = seedDataset();
+    const job = createTrainingJob({ profile: "voice", level: 1, datasetId: ds.id, baseModel: "b" });
+    const done = await runTrainingJob(job.id);
+    expect(done.state).toBe("COMPLETED");
+
+    expect(fake.exportCalls).toEqual(["voice:voice-fake-123"]);
+    const bundle = await loadModelBundle("voice", "voice-fake-123");
+    expect(bundle?.toString()).toBe("fake-checkpoint-bytes");
+  });
+
+  it("a training success is not undone when the model export step fails", async () => {
+    class FlakyExportWorker extends MockTrainingProvider implements TrainingProvider {
+      async train(input: Parameters<TrainingProvider["train"]>[0]) {
+        const r = await super.train(input);
+        return { ...r, modelRef: "voice-flaky-1" };
+      }
+      async exportModel(): Promise<Buffer | undefined> {
+        throw new Error("worker artifact endpoint down");
+      }
+    }
+    _setTrainingProviderForTests(new FlakyExportWorker());
+
+    const ds = seedDataset();
+    const job = createTrainingJob({ profile: "voice", level: 1, datasetId: ds.id, baseModel: "b" });
+    const done = await runTrainingJob(job.id);
+    expect(done.state).toBe("COMPLETED"); // export failure must not fail the job
+    expect(await loadModelBundle("voice", "voice-flaky-1")).toBeNull();
   });
 
   it("runs a job for every profile end-to-end (mock)", async () => {

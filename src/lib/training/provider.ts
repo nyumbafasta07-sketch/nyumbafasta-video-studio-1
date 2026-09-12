@@ -59,6 +59,9 @@ export interface TrainingProvider {
     level: number;
     dataset: Dataset;
     baseModel: string;
+    /** continue improving this already-trained model instead of starting
+     * from the base pretrained checkpoint (voice/F5-TTS only for now) */
+    resumeFromModelRef?: string;
     onStage?: (stage: string) => void;
   }): Promise<TrainResult>;
   evaluate(input: {
@@ -69,6 +72,13 @@ export interface TrainingProvider {
     scriptText: string;
     modelRef?: string;
   }): Promise<EvalResult>;
+  /** Pull a trained model's files off the worker as a portable bundle, so the
+   * app can keep it after this worker's session ends (switching Colab/Kaggle/
+   * local GPUs). Undefined return = not supported for this provider/kind. */
+  exportModel?(kind: string, modelRef: string): Promise<Buffer | undefined>;
+  /** Push a previously-exported bundle onto the CURRENT worker so an existing
+   * model can be used/continued without retraining from scratch. */
+  importModel?(kind: string, modelRef: string, bundle: Buffer): Promise<void>;
 }
 
 /* ---- deterministic helpers so mock output is stable per input ---- */
