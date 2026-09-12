@@ -41,6 +41,7 @@ export const Icon = {
   upload: (p: P) => (<S {...p}><path d="M12 16V4M7 9l5-5 5 5" /><path d="M4 20h16" /></S>),
   download: (p: P) => (<S {...p}><path d="M12 4v12M7 11l5 5 5-5" /><path d="M4 20h16" /></S>),
   trash: (p: P) => (<S {...p}><path d="M4 7h16M9 7V5a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2M6 7l1 13a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1l1-13" /></S>),
+  plus: (p: P) => (<S {...p}><path d="M12 5v14M5 12h14" /></S>),
   logout: (p: P) => (<S {...p}><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9" /></S>),
   sun: (p: P) => (<S {...p}><circle cx="12" cy="12" r="4" /><path d="M12 2v2M12 20v2M4 12H2M22 12h-2M5 5l1.5 1.5M17.5 17.5 19 19M19 5l-1.5 1.5M6.5 17.5 5 19" /></S>),
   moon: (p: P) => (<S {...p}><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8Z" /></S>),

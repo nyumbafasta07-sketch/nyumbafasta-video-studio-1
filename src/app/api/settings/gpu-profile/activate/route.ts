@@ -1,12 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { bootstrap } from "@/lib/bootstrap";
-import { activateGpuProfile, redactedRuntimeConfig, type GpuProfileName } from "@/lib/runtime-config";
+import { activateGpuProfile, redactedRuntimeConfig } from "@/lib/runtime-config";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-const Body = z.object({ name: z.enum(["colab", "kaggle", "local"]) });
+const Body = z.object({ id: z.string().min(1).max(200) });
 
 /** Switch the active GPU/training worker to a previously-saved profile —
  * copies its stored URL/token into the single active fields everything else
@@ -18,7 +18,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 });
   }
   try {
-    activateGpuProfile(parsed.data.name as GpuProfileName);
+    activateGpuProfile(parsed.data.id);
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
     return NextResponse.json({ error: msg }, { status: 400 });

@@ -4,16 +4,19 @@ import { useEffect, useState } from "react";
 import { Icon } from "./Icons";
 import { toast } from "./ui/feedback";
 
-type ProfileName = "colab" | "kaggle" | "local";
-const PROFILE_LABELS: Record<ProfileName, string> = { colab: "Colab", kaggle: "Kaggle", local: "Local" };
-const PROFILE_ORDER: ProfileName[] = ["colab", "kaggle", "local"];
+interface GpuProfileView {
+  id: string;
+  label: string;
+  url: string;
+  tokenSet: boolean;
+}
 interface Cfg {
   gpuProvider: "local-mock" | "http";
   gpuWorkerUrl: string;
   gpuWorkerTokenSet: boolean;
   trainingProvider: "mock" | "worker";
-  activeGpuProfile: ProfileName | "";
-  gpuProfiles: Record<ProfileName, { url: string; tokenSet: boolean }>;
+  activeGpuProfileId: string;
+  gpuProfiles: GpuProfileView[];
 }
 interface Payload {
   config: Cfg;
@@ -22,6 +25,12 @@ interface Payload {
   storageDir: string;
   databaseFile: string;
   passwordHashConfigured: boolean;
+}
+
+interface Draft {
+  label: string;
+  url: string;
+  token: string;
 }
 
 export function SettingsForm() {
@@ -33,9 +42,9 @@ export function SettingsForm() {
   const [owner, setOwner] = useState("");
   const [test, setTest] = useState<{ ok?: boolean; msg: string } | null>(null);
   const [busy, setBusy] = useState(false);
-  const [profileUrl, setProfileUrl] = useState<Record<ProfileName, string>>({ colab: "", kaggle: "", local: "" });
-  const [profileToken, setProfileToken] = useState<Record<ProfileName, string>>({ colab: "", kaggle: "", local: "" });
-  const [profileBusy, setProfileBusy] = useState<ProfileName | null>(null);
+  const [drafts, setDrafts] = useState<Record<string, Draft>>({});
+  const [newIds, setNewIds] = useState<string[]>([]);
+  const [profileBusy, setProfileBusy] = useState<string | null>(null);
 
   async function load() {
     const r = await fetch("/api/settings", { cache: "no-store" });
@@ -46,20 +55,42 @@ export function SettingsForm() {
     setTrainingProvider(data.config.trainingProvider);
     setUrl(data.config.gpuWorkerUrl);
     setOwner(data.ownerLabel);
-    setProfileUrl({
-      colab: data.config.gpuProfiles.colab.url,
-      kaggle: data.config.gpuProfiles.kaggle.url,
-      local: data.config.gpuProfiles.local.url,
+    setDrafts((prev) => {
+      const next: Record<string, Draft> = {};
+      for (const prof of data.config.gpuProfiles) {
+        next[prof.id] = { label: prof.label, url: prof.url, token: "" };
+      }
+      // keep any not-yet-saved drafts the user is still typing into
+      for (const id of newIds) if (prev[id]) next[id] = prev[id];
+      return next;
     });
   }
   useEffect(() => {
     load();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  async function saveProfile(name: ProfileName) {
-    setProfileBusy(name);
-    const body: Record<string, unknown> = { name, url: profileUrl[name] };
-    if (profileToken[name]) body.token = profileToken[name];
+  function addProfile() {
+    const id = `new-${Date.now()}`;
+    setNewIds((ids) => [...ids, id]);
+    setDrafts((d) => ({ ...d, [id]: { label: "", url: "", token: "" } }));
+  }
+
+  function updateDraft(id: string, patch: Partial<Draft>) {
+    setDrafts((d) => ({ ...d, [id]: { ...d[id], ...patch } }));
+  }
+
+  async function saveProfile(id: string) {
+    const draft = drafts[id];
+    if (!draft || !draft.label.trim()) {
+      toast("Jina la muunganiko linahitajika", "err");
+      return;
+    }
+    setProfileBusy(id);
+    const isNew = newIds.includes(id);
+    const body: Record<string, unknown> = { label: draft.label, url: draft.url };
+    if (!isNew) body.id = id;
+    if (draft.token) body.token = draft.token;
     const r = await fetch("/api/settings/gpu-profile", {
       method: "POST",
       headers: { "content-type": "application/json" },
@@ -67,8 +98,8 @@ export function SettingsForm() {
     });
     setProfileBusy(null);
     if (r.ok) {
-      setProfileToken((t) => ({ ...t, [name]: "" }));
-      toast(`${PROFILE_LABELS[name]} saved`, "ok");
+      if (isNew) setNewIds((ids) => ids.filter((x) => x !== id));
+      toast(`${draft.label} imehifadhiwa`, "ok");
       load();
     } else {
       const b = await r.json().catch(() => ({}));
@@ -76,16 +107,42 @@ export function SettingsForm() {
     }
   }
 
-  async function activateProfile(name: ProfileName) {
-    setProfileBusy(name);
-    const r = await fetch("/api/settings/gpu-profile/activate", {
-      method: "POST",
+  async function deleteProfile(id: string) {
+    if (newIds.includes(id)) {
+      setNewIds((ids) => ids.filter((x) => x !== id));
+      setDrafts((d) => {
+        const next = { ...d };
+        delete next[id];
+        return next;
+      });
+      return;
+    }
+    setProfileBusy(id);
+    const r = await fetch("/api/settings/gpu-profile", {
+      method: "DELETE",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ name }),
+      body: JSON.stringify({ id }),
     });
     setProfileBusy(null);
     if (r.ok) {
-      toast(`${PROFILE_LABELS[name]} imewashwa — inatumika sasa`, "ok");
+      toast("Imefutwa", "ok");
+      load();
+    } else {
+      const b = await r.json().catch(() => ({}));
+      toast(typeof b.error === "string" ? b.error : "Could not delete.", "err");
+    }
+  }
+
+  async function activateProfile(id: string) {
+    setProfileBusy(id);
+    const r = await fetch("/api/settings/gpu-profile/activate", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ id }),
+    });
+    setProfileBusy(null);
+    if (r.ok) {
+      toast(`${drafts[id]?.label ?? "GPU"} imewashwa — inatumika sasa`, "ok");
       load();
     } else {
       const b = await r.json().catch(() => ({}));
@@ -130,53 +187,81 @@ export function SettingsForm() {
 
   if (!p) return <div className="card"><div className="skeleton" style={{ height: 200 }} /></div>;
 
+  const savedProfiles = p.config.gpuProfiles.map((prof) => prof.id);
+  const allIds = [...savedProfiles, ...newIds];
+
   return (
     <>
       <div className="card">
-        <h3>Compute profiles</h3>
+        <div className="row" style={{ justifyContent: "space-between", alignItems: "center" }}>
+          <h3>Compute profiles</h3>
+          <button className="secondary sm" onClick={addProfile}>
+            <Icon.plus /> Ongeza muunganiko
+          </button>
+        </div>
         <p className="page-lead">
-          Save a URL + token for each worker once, then switch the active one with one button —
-          handy when Colab hits its free-tier GPU limit, Kaggle is unavailable, or you'd rather use
-          your own machine. "Local" is your own device (needs an NVIDIA GPU for real speed).
+          Ongeza muunganiko wowote wa GPU kwa jina lako mwenyewe (Colab, RunPod, kompyuta yako
+          mwenyewe, chochote) — hifadhi URL + token mara moja, kisha "Washa" ile unayotaka kutumia
+          sasa, bila kuandika tena. App haijali "aina" ya GPU — inahitaji tu inayozungumza
+          worker/contract.md juu ya HTTP.
         </p>
-        <div className="grid" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 16 }}>
-          {PROFILE_ORDER.map((name) => {
-            const label = PROFILE_LABELS[name];
-            const saved = p.config.gpuProfiles[name];
-            const isActive = p.config.activeGpuProfile === name;
+        {allIds.length === 0 ? (
+          <p className="field-hint">Hakuna muunganiko bado — bonyeza &quot;Ongeza muunganiko&quot; kuanza.</p>
+        ) : null}
+        <div className="grid" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))", gap: 16 }}>
+          {allIds.map((id) => {
+            const draft = drafts[id];
+            if (!draft) return null;
+            const isNew = newIds.includes(id);
+            const saved = p.config.gpuProfiles.find((prof) => prof.id === id);
+            const isActive = p.config.activeGpuProfileId === id;
             return (
-              <div key={name} style={{ border: "1px solid var(--border)", borderRadius: 10, padding: 12 }}>
-                <div className="row" style={{ justifyContent: "space-between", alignItems: "center" }}>
-                  <strong>{label}</strong>
+              <div key={id} style={{ border: "1px solid var(--border)", borderRadius: 10, padding: 12 }}>
+                <div className="row" style={{ justifyContent: "space-between", alignItems: "center", gap: 8 }}>
+                  <input
+                    type="text"
+                    value={draft.label}
+                    onChange={(e) => updateDraft(id, { label: e.target.value })}
+                    placeholder="jina, mfano: Colab"
+                    style={{ fontWeight: 650, flex: 1 }}
+                  />
                   {isActive ? <span className="badge success">inatumika sasa</span> : null}
                 </div>
-                <label htmlFor={`pu-${name}`} style={{ marginTop: 8 }}>URL</label>
+                <label htmlFor={`pu-${id}`} style={{ marginTop: 8 }}>URL</label>
                 <input
-                  id={`pu-${name}`}
+                  id={`pu-${id}`}
                   type="text"
-                  value={profileUrl[name]}
-                  onChange={(e) => setProfileUrl((s) => ({ ...s, [name]: e.target.value }))}
+                  value={draft.url}
+                  onChange={(e) => updateDraft(id, { url: e.target.value })}
                   placeholder="https://xxxx.trycloudflare.com"
                 />
-                <label htmlFor={`pt-${name}`}>
-                  Token {saved.tokenSet ? "· imehifadhiwa, acha wazi kuibaki" : "· hiari"}
+                <label htmlFor={`pt-${id}`}>
+                  Token {saved?.tokenSet ? "· imehifadhiwa, acha wazi kuibaki" : "· hiari"}
                 </label>
                 <input
-                  id={`pt-${name}`}
+                  id={`pt-${id}`}
                   type="password"
-                  value={profileToken[name]}
-                  onChange={(e) => setProfileToken((s) => ({ ...s, [name]: e.target.value }))}
-                  placeholder={saved.tokenSet ? "•••••• (haijabadilika)" : "bearer token"}
+                  value={draft.token}
+                  onChange={(e) => updateDraft(id, { token: e.target.value })}
+                  placeholder={saved?.tokenSet ? "•••••• (haijabadilika)" : "bearer token"}
                 />
-                <div className="row" style={{ marginTop: 10, gap: 8 }}>
-                  <button className="secondary" onClick={() => saveProfile(name)} disabled={profileBusy === name}>
-                    {profileBusy === name ? "…" : "Hifadhi"}
+                <div className="row" style={{ marginTop: 10, gap: 8, flexWrap: "wrap" }}>
+                  <button className="secondary" onClick={() => saveProfile(id)} disabled={profileBusy === id}>
+                    {profileBusy === id ? "…" : "Hifadhi"}
                   </button>
                   <button
-                    onClick={() => activateProfile(name)}
-                    disabled={profileBusy === name || !saved.url && !profileUrl[name]}
+                    onClick={() => activateProfile(id)}
+                    disabled={profileBusy === id || isNew || !saved?.url}
                   >
-                    {isActive ? "Washa tena" : `Washa ${label}`}
+                    {isActive ? "Washa tena" : "Washa"}
+                  </button>
+                  <button
+                    className="secondary sm"
+                    onClick={() => deleteProfile(id)}
+                    disabled={profileBusy === id}
+                    aria-label="Futa"
+                  >
+                    <Icon.trash />
                   </button>
                 </div>
               </div>
@@ -189,7 +274,7 @@ export function SettingsForm() {
         <h3>Compute (GPU) — active worker</h3>
         <p className="page-lead">
           This is whichever worker is active right now (set via a profile above, or edited directly
-          here for a one-off / third worker). The browser never talks to the worker; only this server does.
+          here for a one-off worker). The browser never talks to the worker; only this server does.
         </p>
 
         <div className="grid" style={{ gridTemplateColumns: "1fr 1fr" }}>

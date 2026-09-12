@@ -2,12 +2,13 @@
  * Runtime-editable provider settings. Env vars are the defaults; values set in
  * the Settings UI are stored in the `settings` table and win. This lets the
  * founder point the app at any GPU worker (Colab tunnel, Kaggle, a local NVIDIA
- * box, …) without editing .env or restarting.
+ * box, a rented box, …) without editing .env or restarting.
  *
  * The worker token lives in the local, git-ignored SQLite file — never in
  * source, never committed, never logged, never returned by the API (see
  * SECURITY.md, DECISIONS.md).
  */
+import { randomUUID } from "node:crypto";
 import { config } from "./config";
 import { getSetting, setSetting } from "./repo";
 
@@ -51,7 +52,7 @@ export function setRuntimeConfig(patch: RuntimeConfigPatch): void {
   if (patch.gpuProvider) setSetting(KEYS.gpuProvider, patch.gpuProvider);
   if (patch.gpuWorkerUrl !== undefined) {
     setSetting(KEYS.gpuWorkerUrl, patch.gpuWorkerUrl.trim().replace(/\/$/, ""));
-    setSetting(KEYS.activeGpuProfile, ""); // manual URL edit — no longer "the Colab/Kaggle profile"
+    setSetting(KEYS.activeGpuProfile, ""); // manual URL edit — no longer "a saved profile"
   }
   if (patch.gpuWorkerToken) setSetting(KEYS.gpuWorkerToken, patch.gpuWorkerToken);
   if (patch.trainingProvider) setSetting(KEYS.trainingProvider, patch.trainingProvider);
@@ -61,83 +62,116 @@ export function setRuntimeConfig(patch: RuntimeConfigPatch): void {
 /** API-safe view: the token becomes a boolean. */
 export function redactedRuntimeConfig() {
   const rc = getRuntimeConfig();
-  const profiles = getGpuProfiles();
   return {
     gpuProvider: rc.gpuProvider,
     gpuWorkerUrl: rc.gpuWorkerUrl,
     gpuWorkerTokenSet: rc.gpuWorkerToken.length > 0,
     trainingProvider: rc.trainingProvider,
-    activeGpuProfile: getActiveGpuProfile(),
-    gpuProfiles: Object.fromEntries(
-      PROFILE_NAMES.map((name) => [
-        name,
-        { url: profiles[name].url, tokenSet: profiles[name].token.length > 0 },
-      ]),
-    ) as Record<GpuProfileName, { url: string; tokenSet: boolean }>,
+    activeGpuProfileId: getActiveGpuProfileId(),
+    gpuProfiles: listGpuProfiles().map((p) => ({
+      id: p.id,
+      label: p.label,
+      url: p.url,
+      tokenSet: p.token.length > 0,
+    })),
   };
 }
 
 /**
- * Named GPU worker profiles ("colab", "kaggle", …) so the founder can save a
- * URL+token for each once and flip the ACTIVE one with a single button —
- * instead of re-pasting URL/token every time they switch backends (e.g.
- * Colab hits its free-tier GPU limit, so they switch to Kaggle for a while).
- * Activating a profile just copies its url/token into the single active
- * gpuWorkerUrl/gpuWorkerToken fields everything else already reads.
+ * Saved GPU worker connections — any number, any name ("Colab", "RunPod",
+ * "my desktop", …). Save a URL+token once, then flip the ACTIVE one with a
+ * single button — instead of re-pasting URL/token every time you switch
+ * backends (a free-tier limit hit, a machine going offline, whatever GPU
+ * happens to be available right now). Activating a profile just copies its
+ * url/token into the single active gpuWorkerUrl/gpuWorkerToken fields
+ * everything else already reads — the app doesn't care which "kind" of GPU
+ * it's talking to, only that it speaks worker/contract.md over HTTP.
  */
-export type GpuProfileName = "colab" | "kaggle" | "local";
 export interface GpuProfile {
+  id: string;
+  label: string;
   url: string;
   token: string;
 }
-const PROFILE_NAMES: GpuProfileName[] = ["colab", "kaggle", "local"];
 
-function readProfiles(): Record<GpuProfileName, GpuProfile> {
+function readProfiles(): GpuProfile[] {
   const raw = getSetting(KEYS.gpuProfiles);
-  let parsed: Partial<Record<GpuProfileName, GpuProfile>> = {};
-  if (raw) {
-    try {
-      parsed = JSON.parse(raw);
-    } catch {
-      parsed = {};
-    }
+  if (!raw) return [];
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+    return parsed.filter(
+      (p): p is GpuProfile =>
+        !!p && typeof p.id === "string" && typeof p.label === "string",
+    );
+  } catch {
+    return [];
   }
-  const out = {} as Record<GpuProfileName, GpuProfile>;
-  for (const name of PROFILE_NAMES) {
-    out[name] = { url: parsed[name]?.url ?? "", token: parsed[name]?.token ?? "" };
-  }
-  return out;
 }
 
-export function getGpuProfiles(): Record<GpuProfileName, GpuProfile> {
-  return readProfiles();
-}
-
-export function getActiveGpuProfile(): GpuProfileName | "" {
-  const v = getSetting(KEYS.activeGpuProfile) ?? "";
-  return PROFILE_NAMES.includes(v as GpuProfileName) ? (v as GpuProfileName) : "";
-}
-
-/** Upsert one profile's saved url/token. "" for token leaves it unchanged. */
-export function saveGpuProfile(name: GpuProfileName, patch: { url?: string; token?: string }): void {
-  const profiles = readProfiles();
-  const cur = profiles[name];
-  profiles[name] = {
-    url: patch.url !== undefined ? patch.url.trim().replace(/\/$/, "") : cur.url,
-    token: patch.token ? patch.token : cur.token,
-  };
+function writeProfiles(profiles: GpuProfile[]): void {
   setSetting(KEYS.gpuProfiles, JSON.stringify(profiles));
 }
 
+export function listGpuProfiles(): GpuProfile[] {
+  return readProfiles();
+}
+
+export function getActiveGpuProfileId(): string {
+  return getSetting(KEYS.activeGpuProfile) ?? "";
+}
+
+/** Create a new profile (omit `id`) or update an existing one (pass `id`).
+ * "" / omitted token leaves a stored token unchanged. Returns the profile id. */
+export function saveGpuProfile(input: {
+  id?: string;
+  label: string;
+  url?: string;
+  token?: string;
+}): string {
+  const profiles = readProfiles();
+  const label = input.label.trim().slice(0, 60) || "GPU";
+
+  if (input.id) {
+    const idx = profiles.findIndex((p) => p.id === input.id);
+    if (idx === -1) throw new Error("profile not found");
+    const cur = profiles[idx];
+    profiles[idx] = {
+      id: cur.id,
+      label,
+      url: input.url !== undefined ? input.url.trim().replace(/\/$/, "") : cur.url,
+      token: input.token ? input.token : cur.token,
+    };
+    writeProfiles(profiles);
+    return cur.id;
+  }
+
+  const id = randomUUID();
+  profiles.push({
+    id,
+    label,
+    url: (input.url ?? "").trim().replace(/\/$/, ""),
+    token: input.token ?? "",
+  });
+  writeProfiles(profiles);
+  return id;
+}
+
+export function deleteGpuProfile(id: string): void {
+  writeProfiles(readProfiles().filter((p) => p.id !== id));
+  if (getActiveGpuProfileId() === id) setSetting(KEYS.activeGpuProfile, "");
+}
+
 /** Make a saved profile the active worker (generation + training). */
-export function activateGpuProfile(name: GpuProfileName): GpuProfile {
-  const profile = readProfiles()[name];
-  if (!profile.url) throw new Error(`no URL saved for profile "${name}" yet — save one first`);
+export function activateGpuProfile(id: string): GpuProfile {
+  const profile = readProfiles().find((p) => p.id === id);
+  if (!profile) throw new Error("profile not found");
+  if (!profile.url) throw new Error(`no URL saved for "${profile.label}" yet — save one first`);
   setSetting(KEYS.gpuWorkerUrl, profile.url);
   if (profile.token) setSetting(KEYS.gpuWorkerToken, profile.token);
   setSetting(KEYS.gpuProvider, "http" satisfies GpuProviderName);
   setSetting(KEYS.trainingProvider, "worker" satisfies TrainingProviderName);
-  setSetting(KEYS.activeGpuProfile, name);
+  setSetting(KEYS.activeGpuProfile, id);
   clearProviderCaches();
   return profile;
 }
